@@ -27,6 +27,28 @@ let multilineMode = false;
 let multilineLines = [];
 let multilineResolve;
 let multilineReject;
+let defaultLanguage = null;
+const conversation = [];
+const MAX_CONTEXT_MESSAGES = 16;
+
+function rememberConversation(role, content) {
+  conversation.push({ role, content });
+  if (conversation.length > MAX_CONTEXT_MESSAGES) {
+    conversation.splice(0, conversation.length - MAX_CONTEXT_MESSAGES);
+  }
+}
+
+function conversationPrompt(message) {
+  const history = conversation
+    .map((item) => `${item.role === "user" ? "User" : "Friday"}: ${item.content}`)
+    .join("\n\n");
+
+  const preference = defaultLanguage
+    ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
+    : "\nNo default coding language has been selected for this session. Never invent one for an ambiguous programming problem.";
+
+  return `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat the context back to the user.${preference}\n\nCONVERSATION CONTEXT:\n${history || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
+}
 
 function readMultilinePrompt() {
   return new Promise((resolve, reject) => {
@@ -66,7 +88,7 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
     messages: [{
       role: "user",
       content: [
-        { type: "text", text: prompt },
+        { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
         { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
       ],
     }],
@@ -82,13 +104,27 @@ function printBanner() {
   console.log("Multiline problems: enabled");
   console.log("Image understanding: enabled");
   console.log("Adaptive problem/language detection: enabled");
+  console.log("Conversational context: enabled");
   console.log("Memory: enabled");
   console.log("Device server: enabled");
-  console.log("\nCommands: paste | solve: | explain: | debug: | image <path> | exit\n");
+  console.log("\nCommands: paste | solve: | explain: | debug: | teach: | language <name> | image <path> | exit\n");
 }
 
 function buildMultilinePrompt(mode, body) {
-  return `${mode}\n\nAnalyze the supplied content before answering. Automatically determine whether it is a general question, MCQ, coding problem, debugging task, SQL query, markup/style issue, or another type of problem. If it is a programming problem, infer the language from the supplied code/context when possible. If no language can be inferred, ask for the language only when it is genuinely necessary; otherwise give a language-agnostic explanation. Respect explicit language instructions if present.\n\nCONTENT:\n${body}`;
+  const languageHint = defaultLanguage
+    ? `\nThe user's current default coding language is ${defaultLanguage}. Use it if the supplied programming problem does not specify another language.`
+    : "\nNo default coding language is set. If this is an implementation problem and the language cannot be inferred, ask the user which language they want instead of choosing one arbitrarily.";
+
+  return `${mode}\n\nAnalyze the supplied content before answering. Determine whether it is a general question, MCQ, coding problem, debugging task, SQL query, markup/style issue, or another type of problem.${languageHint}\nIf it is a programming problem, infer the language from supplied code/context when possible. Respect explicit language instructions. For solve requests, give a practical solution rather than an unnecessarily long academic essay.\n\nCONTENT:\n${body}`;
+}
+
+async function askFriday(message) {
+  const prompt = conversationPrompt(message);
+  const result = await run(fridayAgent, prompt, { tracingDisabled: true });
+  const answer = result.finalOutput || "I wasn't able to produce a response.";
+  rememberConversation("user", message);
+  rememberConversation("assistant", answer);
+  return answer;
 }
 
 rl.on("line", async (line) => {
@@ -121,13 +157,23 @@ rl.on("line", async (line) => {
     return;
   }
 
-  if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:") {
-    const mode = lower === "paste" ? "Solve/analyze this" : trimmed.slice(0, -1);
+  if (lower.startsWith("language ")) {
+    const language = trimmed.slice("language ".length).trim();
+    defaultLanguage = language || null;
+    console.log(defaultLanguage
+      ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n`
+      : "Friday: No default coding language is set.\n");
+    output.write("You: ");
+    return;
+  }
+
+  if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:" || lower === "teach:") {
+    const mode = lower === "paste" ? "Inspect and help with this" : trimmed.slice(0, -1);
     try {
       const body = await readMultilinePrompt();
       if (body) {
-        const result = await run(fridayAgent, buildMultilinePrompt(mode, body), { tracingDisabled: true });
-        console.log(`\nFriday: ${result.finalOutput}\n`);
+        const answer = await askFriday(buildMultilinePrompt(mode, body));
+        console.log(`\nFriday: ${answer}\n`);
       }
     } catch (error) {
       console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
@@ -140,6 +186,8 @@ rl.on("line", async (line) => {
     try {
       console.log("Friday: Analyzing image...\n");
       const answer = await analyzeImage(trimmed.slice(6));
+      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`);
+      rememberConversation("assistant", answer);
       console.log(`Friday: ${answer}\n`);
     } catch (error) {
       console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`);
@@ -149,8 +197,8 @@ rl.on("line", async (line) => {
   }
 
   try {
-    const result = await run(fridayAgent, trimmed, { tracingDisabled: true });
-    console.log(`Friday: ${result.finalOutput}\n`);
+    const answer = await askFriday(trimmed);
+    console.log(`Friday: ${answer}\n`);
   } catch (error) {
     console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
   }
