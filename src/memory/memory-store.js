@@ -29,7 +29,7 @@ export function memoryStatus() {
   };
 }
 
-export async function saveMemory(content, metadata = {}) {
+export async function saveMemory(content, _metadata = {}) {
   const text = normalize(content);
   if (!text) return { saved: false, reason: "empty" };
 
@@ -40,8 +40,7 @@ export async function saveMemory(content, metadata = {}) {
     headers: { ...headers(), Prefer: "return=minimal" },
     body: JSON.stringify({
       user_id: userId,
-      content: text,
-      metadata,
+      memory: text,
     }),
   });
 
@@ -58,7 +57,7 @@ export async function searchMemories(query = "", limit = 12) {
 
   const params = new URLSearchParams();
   params.set("user_id", `eq.${userId}`);
-  params.set("select", "content,metadata,created_at");
+  params.set("select", "memory,created_at");
   params.set("order", "created_at.desc");
   params.set("limit", String(Math.min(Math.max(limit, 1), 30)));
 
@@ -72,11 +71,22 @@ export async function searchMemories(query = "", limit = 12) {
   }
 
   const rows = await response.json();
-  if (!query.trim()) return rows;
+  const normalizedRows = rows.map((row) => ({
+    content: typeof row.memory === "string" ? row.memory : JSON.stringify(row.memory ?? ""),
+    created_at: row.created_at,
+  }));
+
+  if (!query.trim()) return normalizedRows;
 
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return rows
-    .map((row) => ({ row, score: terms.reduce((score, term) => score + (String(row.content).toLowerCase().includes(term) ? 1 : 0), 0) }))
+  return normalizedRows
+    .map((row) => ({
+      row,
+      score: terms.reduce(
+        (score, term) => score + (row.content.toLowerCase().includes(term) ? 1 : 0),
+        0
+      ),
+    }))
     .sort((a, b) => b.score - a.score)
     .map(({ row }) => row);
 }
