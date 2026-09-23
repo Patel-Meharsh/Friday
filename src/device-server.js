@@ -39,7 +39,10 @@ async function supabaseRequest(path, options = {}) {
     throw new Error(`Supabase device request failed (${response.status}): ${body}`);
   }
 
-  return response.status === 204 ? null : response.json();
+  // Supabase can return a successful response with an empty body when
+  // Prefer: return=minimal is used. Never call response.json() on that.
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
 
 function sendJson(response, status, body) {
@@ -103,7 +106,7 @@ async function heartbeat(request, response) {
 
   const tokenHash = hashToken(deviceToken);
   const rows = await supabaseRequest(`friday_devices?token_hash=eq.${encodeURIComponent(tokenHash)}&select=device_id`);
-  if (!rows.length) return sendJson(response, 401, { error: "Invalid device token." });
+  if (!rows?.length) return sendJson(response, 401, { error: "Invalid device token." });
 
   const body = await readJson(request);
   const deviceId = rows[0].device_id;
