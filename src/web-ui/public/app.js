@@ -8,6 +8,8 @@ const voice = document.getElementById('voice');
 const voiceStatus = document.getElementById('voiceStatus');
 const welcome = document.querySelector('.welcome');
 
+let speaking = false;
+
 function addMessage(role, text) {
   welcome?.remove();
   const el = document.createElement('article');
@@ -20,6 +22,31 @@ function addMessage(role, text) {
   el.append(label, body);
   messages.appendChild(el);
   messages.scrollTop = messages.scrollHeight;
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window) || !text?.trim()) return;
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'en-IN';
+  utterance.rate = 1;
+  utterance.pitch = 1;
+
+  utterance.onstart = () => {
+    speaking = true;
+    voiceStatus.textContent = 'Friday is speaking…';
+  };
+  utterance.onend = () => {
+    speaking = false;
+    voiceStatus.textContent = 'Voice command will send automatically';
+  };
+  utterance.onerror = () => {
+    speaking = false;
+    voiceStatus.textContent = 'Voice response unavailable; text response shown.';
+  };
+
+  window.speechSynthesis.speak(utterance);
 }
 
 async function sendMessage(rawMessage) {
@@ -38,9 +65,13 @@ async function sendMessage(rawMessage) {
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed');
-    addMessage('friday', data.answer || 'I did not receive an answer.');
+    const answer = data.answer || 'I did not receive an answer.';
+    addMessage('friday', answer);
+    speak(answer);
   } catch (error) {
-    addMessage('friday', `I couldn't complete that request: ${error.message}`);
+    const errorMessage = `I couldn't complete that request: ${error.message}`;
+    addMessage('friday', errorMessage);
+    speak(errorMessage);
   } finally {
     send.disabled = false;
     input.focus();
@@ -59,7 +90,7 @@ createVoiceInput({
       voiceStatus.textContent = 'Listening… speak now';
     } else if (state.error) {
       voiceStatus.textContent = `Voice: ${state.error}`;
-    } else {
+    } else if (!speaking) {
       voiceStatus.textContent = 'Voice command will send automatically';
     }
   },
