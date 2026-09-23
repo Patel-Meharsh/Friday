@@ -9,13 +9,14 @@ export function createVoiceInput({ input, button, onStateChange = () => {}, onFi
   }
 
   const recognition = new Recognition();
-  recognition.lang = document.documentElement.lang === "en" ? "en-IN" : "en-US";
+  recognition.lang = "en-IN";
   recognition.continuous = false;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   let listening = false;
   let finalTranscript = "";
+  let submitted = false;
 
   function setListening(value) {
     listening = value;
@@ -25,21 +26,40 @@ export function createVoiceInput({ input, button, onStateChange = () => {}, onFi
     onStateChange({ supported: true, listening: value });
   }
 
+  function submitOnce(text) {
+    const message = text.trim();
+    if (!message || submitted) return;
+    submitted = true;
+    input.value = message;
+    if (typeof onFinalTranscript === "function") onFinalTranscript(message);
+  }
+
   recognition.onstart = () => {
     finalTranscript = "";
+    submitted = false;
     setListening(true);
   };
 
   recognition.onresult = (event) => {
     let interimTranscript = "";
+    let gotFinal = false;
+
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const text = event.results[i][0].transcript;
-      if (event.results[i].isFinal) finalTranscript += text;
-      else interimTranscript += text;
+      if (event.results[i].isFinal) {
+        finalTranscript += text;
+        gotFinal = true;
+      } else {
+        interimTranscript += text;
+      }
     }
 
     const combined = `${finalTranscript} ${interimTranscript}`.trim();
     if (combined) input.value = combined;
+
+    // Do not wait for a keyboard event. As soon as Chrome gives us a final
+    // transcript, Friday submits it automatically.
+    if (gotFinal && finalTranscript.trim()) submitOnce(finalTranscript);
   };
 
   recognition.onerror = (event) => {
@@ -49,10 +69,9 @@ export function createVoiceInput({ input, button, onStateChange = () => {}, onFi
 
   recognition.onend = () => {
     setListening(false);
-    const text = finalTranscript.trim() || input.value.trim();
-    if (text && typeof onFinalTranscript === "function") {
-      onFinalTranscript(text);
-    }
+    // Some browsers deliver the final result immediately before onend while
+    // others only expose the completed text here. Handle both cases.
+    if (!submitted) submitOnce(finalTranscript || input.value);
   };
 
   button.addEventListener("click", () => {
@@ -62,7 +81,6 @@ export function createVoiceInput({ input, button, onStateChange = () => {}, onFi
     }
 
     try {
-      // The browser owns microphone permission. Friday never stores raw audio.
       recognition.start();
     } catch (error) {
       onStateChange({ supported: true, listening: false, error: error.message });
