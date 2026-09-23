@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readCloudMemory, writeCloudMemory } from "./cloud.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,12 @@ const defaultMemory = {
   preferences: {},
 };
 
+const provider = process.env.MEMORY_PROVIDER || "local";
+
+function isCloud() {
+  return provider === "cloud";
+}
+
 async function ensureMemoryFile() {
   try {
     await fs.access(memoryFile);
@@ -22,14 +29,22 @@ async function ensureMemoryFile() {
   }
 }
 
-export async function readMemory() {
+async function readLocalMemory() {
   await ensureMemoryFile();
   const raw = await fs.readFile(memoryFile, "utf8");
   return JSON.parse(raw);
 }
 
-export async function writeMemory(memory) {
+async function writeLocalMemory(memory) {
   await fs.writeFile(memoryFile, JSON.stringify(memory, null, 2), "utf8");
+}
+
+export async function readMemory() {
+  return isCloud() ? readCloudMemory() : readLocalMemory();
+}
+
+export async function writeMemory(memory) {
+  return isCloud() ? writeCloudMemory(memory) : writeLocalMemory(memory);
 }
 
 export async function setPreferredName(name) {
