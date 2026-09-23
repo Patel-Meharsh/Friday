@@ -5,7 +5,8 @@ import readline from "node:readline";
 import { stdin as input, stdout as output } from "node:process";
 import OpenAI from "openai";
 import { run } from "@openai/agents";
-import { fridayAgent } from "./agent/friday.js";
+import { createFridayAgent } from "./agent/create-friday-agent.js";
+import { chooseModel } from "./agent/model-router.js";
 import { askWithBuiltInTools } from "./core/tool-enabled.js";
 import { startDeviceServer } from "./device-server.js";
 
@@ -21,7 +22,7 @@ const deviceServer = startDeviceServer();
 const rl = readline.createInterface({ input, output, terminal: true });
 const visionClient = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
+  baseURL: "https://api.groq.com/groq/v1",
 });
 
 let multilineMode = false;
@@ -64,21 +65,18 @@ function shouldUseBuiltInTools(message) {
 async function askFriday(message, forceTools = false) {
   const context = conversationContext();
   const useTools = forceTools || shouldUseBuiltInTools(message);
-
   let answer;
+
   if (useTools) {
-    answer = await askWithBuiltInTools({
-      message,
-      context,
-      defaultLanguage,
-    });
+    answer = await askWithBuiltInTools({ message, context, defaultLanguage });
   } else {
+    const routing = chooseModel(message, conversation.length);
     const preference = defaultLanguage
       ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
       : "\nNo default coding language has been selected for this session. Never invent one for an ambiguous programming problem.";
-
     const prompt = `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat it back to the user.${preference}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
-    const result = await run(fridayAgent, prompt, { tracingDisabled: true });
+    const agent = createFridayAgent(routing.model);
+    const result = await run(agent, prompt, { tracingDisabled: true });
     answer = result.finalOutput || "I wasn't able to produce a response.";
   }
 
@@ -115,9 +113,7 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
   if (!mimeType) throw new Error("Unsupported image type. Use JPG, JPEG, PNG, WEBP, or GIF.");
 
   const image = await fs.readFile(resolvedPath);
-  if (image.length > 20 * 1024 * 1024) {
-    throw new Error("Image is larger than the 20 MB image-input limit.");
-  }
+  if (image.length > 20 * 1024 * 1024) throw new Error("Image is larger than the 20 MB image-input limit.");
 
   const base64 = image.toString("base64");
   const response = await visionClient.chat.completions.create({
@@ -137,6 +133,8 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
 function printBanner() {
   console.log("\nFRIDAY v0.8 is online.");
   console.log("AI provider: Groq");
+  console.log("Adaptive model routing: enabled");
+  console.log("20B: lightweight conversations | 120B: complex reasoning");
   console.log("General AI core: enabled");
   console.log("Multiline problems: enabled");
   console.log("Image understanding: enabled");
@@ -152,8 +150,7 @@ function printBanner() {
 function buildMultilinePrompt(mode, body) {
   const languageHint = defaultLanguage
     ? `\nThe user's current default coding language is ${defaultLanguage}. Use it if the supplied programming problem does not specify another language.`
-    : "\nNo default coding language is set. If this is an implementation problem and the language cannot be inferred, ask the user which language they want instead of choosing one arbitrarily.";
-
+    : "\nNo default coding language is set. If this is an implementation problem and the language cannot be inferred, ask which language they want instead of choosing one arbitrarily.";
   return `${mode}\n\nAnalyze the supplied content before answering. Determine whether it is a general question, MCQ, coding problem, debugging task, SQL query, markup/style issue, or another type of problem.${languageHint}\nIf it is a programming problem, infer the language from supplied code/context when possible. Respect explicit language instructions. For solve requests, give a practical solution rather than an unnecessarily long academic essay.\n\nCONTENT:\n${body}`;
 }
 
@@ -175,56 +172,39 @@ rl.on("line", async (line) => {
 
   const trimmed = line.trim();
   const lower = trimmed.toLowerCase();
-
   if (!trimmed) {
     output.write("You: ");
     return;
   }
-
   if (lower === "exit") {
     console.log("Friday: Shutting down. Goodbye.");
     rl.close();
     return;
   }
-
   if (lower.startsWith("language ")) {
-    const language = trimmed.slice("language ".length).trim();
-    defaultLanguage = language || null;
+    defaultLanguage = trimmed.slice("language ".length).trim() || null;
     console.log(defaultLanguage
       ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n`
       : "Friday: No default coding language is set.\n");
     output.write("You: ");
     return;
   }
-
-  if (lower === "web:") {
+  if (lower === "web:" || lower === "run:") {
     try {
       const body = await readMultilinePrompt();
       if (body) {
-        const answer = await askFriday(`Research this request using current web information. Cite useful sources.\n\n${body}`, true);
+        const instruction = lower === "web:"
+          ? `Research this request using current web information. Cite useful sources.\n\n${body}`
+          : `Use the secure Python execution tool to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
+        const answer = await askFriday(instruction, true);
         console.log(`\nFriday: ${answer}\n`);
       }
     } catch (error) {
-      console.error(`Friday: ${error.message || "Web research failed."}`);
+      console.error(`Friday: ${error.message || "The request failed."}`);
     }
     output.write("You: ");
     return;
   }
-
-  if (lower === "run:") {
-    try {
-      const body = await readMultilinePrompt();
-      if (body) {
-        const answer = await askFriday(`Use the secure Python execution tool to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`, true);
-        console.log(`\nFriday: ${answer}\n`);
-      }
-    } catch (error) {
-      console.error(`Friday: ${error.message || "Code execution failed."}`);
-    }
-    output.write("You: ");
-    return;
-  }
-
   if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:" || lower === "teach:") {
     const mode = lower === "paste" ? "Inspect and help with this" : trimmed.slice(0, -1);
     try {
@@ -239,7 +219,6 @@ rl.on("line", async (line) => {
     output.write("You: ");
     return;
   }
-
   if (lower.startsWith("image ")) {
     try {
       console.log("Friday: Analyzing image...\n");
@@ -253,14 +232,12 @@ rl.on("line", async (line) => {
     output.write("You: ");
     return;
   }
-
   try {
     const answer = await askFriday(trimmed);
     console.log(`Friday: ${answer}\n`);
   } catch (error) {
     console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
   }
-
   output.write("You: ");
 });
 
