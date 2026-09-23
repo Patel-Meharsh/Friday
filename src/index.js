@@ -6,6 +6,7 @@ import { stdin as input, stdout as output } from "node:process";
 import OpenAI from "openai";
 import { run } from "@openai/agents";
 import { fridayAgent } from "./agent/friday.js";
+import { askWithBuiltInTools } from "./core/tool-enabled.js";
 import { startDeviceServer } from "./device-server.js";
 
 if (!process.env.GROQ_API_KEY) {
@@ -38,16 +39,52 @@ function rememberConversation(role, content) {
   }
 }
 
-function conversationPrompt(message) {
-  const history = conversation
+function conversationContext() {
+  return conversation
     .map((item) => `${item.role === "user" ? "User" : "Friday"}: ${item.content}`)
     .join("\n\n");
+}
 
-  const preference = defaultLanguage
-    ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
-    : "\nNo default coding language has been selected for this session. Never invent one for an ambiguous programming problem.";
+function shouldUseBuiltInTools(message) {
+  const text = message.toLowerCase();
+  const webSignals = [
+    "latest", "today", "current", "recent", "news", "search", "look up",
+    "research", "browse", "website", "web", "online", "what happened",
+    "price", "weather", "documentation", "docs", "release", "released",
+    "version", "update", "source", "sources", "according to",
+  ];
+  const codeSignals = [
+    "run this", "execute this", "test this", "calculate", "compute", "verify",
+    "data analysis", "plot", "simulate", "benchmark", "does this code work",
+  ];
+  return webSignals.some((signal) => text.includes(signal))
+    || codeSignals.some((signal) => text.includes(signal));
+}
 
-  return `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat the context back to the user.${preference}\n\nCONVERSATION CONTEXT:\n${history || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
+async function askFriday(message, forceTools = false) {
+  const context = conversationContext();
+  const useTools = forceTools || shouldUseBuiltInTools(message);
+
+  let answer;
+  if (useTools) {
+    answer = await askWithBuiltInTools({
+      message,
+      context,
+      defaultLanguage,
+    });
+  } else {
+    const preference = defaultLanguage
+      ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
+      : "\nNo default coding language has been selected for this session. Never invent one for an ambiguous programming problem.";
+
+    const prompt = `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat it back to the user.${preference}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
+    const result = await run(fridayAgent, prompt, { tracingDisabled: true });
+    answer = result.finalOutput || "I wasn't able to produce a response.";
+  }
+
+  rememberConversation("user", message);
+  rememberConversation("assistant", answer);
+  return answer;
 }
 
 function readMultilinePrompt() {
@@ -98,16 +135,18 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
 }
 
 function printBanner() {
-  console.log("\nFRIDAY v0.6 is online.");
+  console.log("\nFRIDAY v0.8 is online.");
   console.log("AI provider: Groq");
   console.log("General AI core: enabled");
   console.log("Multiline problems: enabled");
   console.log("Image understanding: enabled");
-  console.log("Adaptive problem/language detection: enabled");
+  console.log("Adaptive language detection: enabled");
   console.log("Conversational context: enabled");
+  console.log("Web research: enabled");
+  console.log("Secure Python execution: enabled");
   console.log("Memory: enabled");
   console.log("Device server: enabled");
-  console.log("\nCommands: paste | solve: | explain: | debug: | teach: | language <name> | image <path> | exit\n");
+  console.log("\nCommands: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | exit\n");
 }
 
 function buildMultilinePrompt(mode, body) {
@@ -116,15 +155,6 @@ function buildMultilinePrompt(mode, body) {
     : "\nNo default coding language is set. If this is an implementation problem and the language cannot be inferred, ask the user which language they want instead of choosing one arbitrarily.";
 
   return `${mode}\n\nAnalyze the supplied content before answering. Determine whether it is a general question, MCQ, coding problem, debugging task, SQL query, markup/style issue, or another type of problem.${languageHint}\nIf it is a programming problem, infer the language from supplied code/context when possible. Respect explicit language instructions. For solve requests, give a practical solution rather than an unnecessarily long academic essay.\n\nCONTENT:\n${body}`;
-}
-
-async function askFriday(message) {
-  const prompt = conversationPrompt(message);
-  const result = await run(fridayAgent, prompt, { tracingDisabled: true });
-  const answer = result.finalOutput || "I wasn't able to produce a response.";
-  rememberConversation("user", message);
-  rememberConversation("assistant", answer);
-  return answer;
 }
 
 rl.on("line", async (line) => {
@@ -163,6 +193,34 @@ rl.on("line", async (line) => {
     console.log(defaultLanguage
       ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n`
       : "Friday: No default coding language is set.\n");
+    output.write("You: ");
+    return;
+  }
+
+  if (lower === "web:") {
+    try {
+      const body = await readMultilinePrompt();
+      if (body) {
+        const answer = await askFriday(`Research this request using current web information. Cite useful sources.\n\n${body}`, true);
+        console.log(`\nFriday: ${answer}\n`);
+      }
+    } catch (error) {
+      console.error(`Friday: ${error.message || "Web research failed."}`);
+    }
+    output.write("You: ");
+    return;
+  }
+
+  if (lower === "run:") {
+    try {
+      const body = await readMultilinePrompt();
+      if (body) {
+        const answer = await askFriday(`Use the secure Python execution tool to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`, true);
+        console.log(`\nFriday: ${answer}\n`);
+      }
+    } catch (error) {
+      console.error(`Friday: ${error.message || "Code execution failed."}`);
+    }
     output.write("You: ");
     return;
   }
