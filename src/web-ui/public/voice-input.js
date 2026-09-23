@@ -1,4 +1,4 @@
-export function createVoiceInput({ input, button, onStateChange = () => {} }) {
+export function createVoiceInput({ input, button, onStateChange = () => {}, onFinalTranscript = null }) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
   if (!Recognition) {
@@ -15,6 +15,7 @@ export function createVoiceInput({ input, button, onStateChange = () => {} }) {
   recognition.maxAlternatives = 1;
 
   let listening = false;
+  let finalTranscript = "";
 
   function setListening(value) {
     listening = value;
@@ -24,14 +25,21 @@ export function createVoiceInput({ input, button, onStateChange = () => {} }) {
     onStateChange({ supported: true, listening: value });
   }
 
-  recognition.onstart = () => setListening(true);
+  recognition.onstart = () => {
+    finalTranscript = "";
+    setListening(true);
+  };
 
   recognition.onresult = (event) => {
-    let transcript = "";
+    let interimTranscript = "";
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      transcript += event.results[i][0].transcript;
+      const text = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finalTranscript += text;
+      else interimTranscript += text;
     }
-    if (transcript.trim()) input.value = transcript.trim();
+
+    const combined = `${finalTranscript} ${interimTranscript}`.trim();
+    if (combined) input.value = combined;
   };
 
   recognition.onerror = (event) => {
@@ -39,7 +47,13 @@ export function createVoiceInput({ input, button, onStateChange = () => {} }) {
     onStateChange({ supported: true, listening: false, error: event.error || "Voice recognition failed." });
   };
 
-  recognition.onend = () => setListening(false);
+  recognition.onend = () => {
+    setListening(false);
+    const text = finalTranscript.trim() || input.value.trim();
+    if (text && typeof onFinalTranscript === "function") {
+      onFinalTranscript(text);
+    }
+  };
 
   button.addEventListener("click", () => {
     if (listening) {
