@@ -4,6 +4,7 @@ import { currentTimeTool } from "../tools/time.js";
 
 export const fridayAgent = new Agent({
   name: "Friday",
+  model: "openai/gpt-oss-120b",
   instructions: `
 You are Friday, the core AI agent of a personal assistant project.
 
