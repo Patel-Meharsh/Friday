@@ -1,5 +1,9 @@
 import readline from "node:readline";
 import os from "node:os";
+import { loadOrCreateDeviceIdentity } from "./device-identity.js";
+
+const identity = await loadOrCreateDeviceIdentity();
+const userId = process.env.FRIDAY_USER_ID || "unassigned";
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -7,10 +11,12 @@ const rl = readline.createInterface({
   prompt: "Friday Agent> ",
 });
 
-console.log("FRIDAY DEVICE AGENT v0.1");
+console.log("FRIDAY DEVICE AGENT v0.2");
 console.log(`Device: ${os.hostname()}`);
-console.log("Mode: local read-only prototype");
-console.log("No cloud connection or computer-control commands are enabled yet.");
+console.log(`Device ID: ${identity.deviceId}`);
+console.log(`User ID: ${userId}`);
+console.log("Mode: local identity/read-only prototype");
+console.log("Cloud connection is not enabled in this milestone.");
 console.log("Type 'status' to inspect the agent or 'exit' to shut it down.\n");
 
 rl.prompt();
@@ -21,6 +27,8 @@ rl.on("line", (input) => {
   if (command === "status") {
     console.log(JSON.stringify({
       online: true,
+      deviceId: identity.deviceId,
+      userId,
       hostname: os.hostname(),
       platform: os.platform(),
       architecture: os.arch(),
@@ -37,7 +45,7 @@ rl.on("line", (input) => {
     rl.close();
     return;
   } else if (command) {
-    console.log("Command not enabled in V0.1 device-agent prototype.");
+    console.log("Command not enabled in V0.2 device-agent prototype.");
   }
 
   rl.prompt();
