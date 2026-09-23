@@ -10,6 +10,7 @@ import { chooseModel } from "./agent/model-router.js";
 import { detectIntent, buildNaturalIntentPrompt } from "./agent/intent-router.js";
 import { askWithResilientTools } from "./core/resilient-tools.js";
 import { startDeviceServer } from "./device-server.js";
+import { startWebUI } from "./web-ui/server.js";
 
 if (!process.env.GROQ_API_KEY) {
   console.error("Missing GROQ_API_KEY. Add it to a local .env file.");
@@ -68,6 +69,28 @@ async function askFriday(message, forceTools = false) {
   return answer;
 }
 
+function getStatus() {
+  return {
+    online: true,
+    version: "1.0.0",
+    provider: "Groq",
+    defaultLanguage,
+    conversationMessages: conversation.length,
+    webUI: true,
+    deviceServer: true,
+    capabilities: {
+      generalAI: true,
+      webResearch: true,
+      codeExecution: true,
+      memory: true,
+      imageUnderstanding: true,
+      deviceAgent: true,
+    },
+  };
+}
+
+startWebUI({ askFriday, getStatus });
+
 function readMultilinePrompt() {
   return new Promise((resolve, reject) => {
     multilineMode = true;
@@ -101,20 +124,15 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
 }
 
 function printBanner() {
-  console.log("\nFRIDAY v0.9 is online.");
+  console.log("\nFRIDAY v1.0 is online.");
   console.log("AI provider: Groq");
   console.log("Adaptive model routing: enabled");
   console.log("Natural intent detection: enabled");
   console.log("Autonomous problem solving: enabled");
-  console.log("20B: lightweight tasks | 120B: complex reasoning");
-  console.log("120B rate-limit fallback: enabled");
-  console.log("Multiline problems: enabled");
-  console.log("Image understanding: enabled");
-  console.log("Conversational context: enabled");
-  console.log("Web research: enabled");
-  console.log("Secure Python execution: enabled");
-  console.log("Memory: enabled");
+  console.log("Web research + secure execution: enabled");
+  console.log("Memory + image understanding: enabled");
   console.log("Device server: enabled");
+  console.log("Web UI: http://localhost:3000");
   console.log("\nCommands remain available as shortcuts: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | exit\n");
 }
 
@@ -128,8 +146,6 @@ function buildMultilinePrompt(mode, body) {
 async function processMultiline(body, explicitMode = null) {
   if (!body) return null;
   if (explicitMode) return askFriday(buildMultilinePrompt(explicitMode, body));
-  // V0.9: END itself is enough. Friday infers whether the pasted content is a
-  // coding problem, debug task, MCQ, explanation, research request, or chat.
   const intent = detectIntent(body, defaultLanguage);
   const prompt = buildNaturalIntentPrompt(body, defaultLanguage);
   if (intent.intent === "research" || intent.intent === "execute") return askFriday(prompt, true);
@@ -175,11 +191,6 @@ rl.on("line", async (line) => {
       const body = await readMultilinePrompt();
       if (body) { const answer = await processMultiline(body, mode); console.log(`\nFriday: ${answer}\n`); }
     } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
-    output.write("You: "); return;
-  }
-
-  if (lower === "end") {
-    console.log("Friday: There is no active multiline input. Paste content first, or ask me directly.\n");
     output.write("You: "); return;
   }
 
