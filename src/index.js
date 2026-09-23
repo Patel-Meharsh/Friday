@@ -16,8 +16,10 @@ process.env.OPENAI_BASE_URL = "https://api.groq.com/openai/v1";
 const deviceServer = startDeviceServer();
 const rl = readline.createInterface({ input, output });
 
-console.log("\nFRIDAY v0.1 is online.");
+console.log("\nFRIDAY v0.6 is online.");
 console.log("AI provider: Groq");
+console.log("General AI core: enabled");
+console.log("Memory: enabled");
 console.log("Device server: enabled");
 console.log("Type 'exit' to shut down.\n");
 
