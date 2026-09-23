@@ -137,6 +137,7 @@ export function startDeviceServer() {
     }
   });
 
-  server.listen(port, () => console.log(`Device server listening on http://localhost:${port}`));
+  // Start silently so the asynchronous listen callback cannot appear after the CLI prompt.
+  server.listen(port);
   return server;
 }
