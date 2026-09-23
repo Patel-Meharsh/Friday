@@ -1,4 +1,5 @@
 import { createVoiceInput } from "./voice-input.js";
+import { createVoiceOutput } from "./voice-output.js";
 
 const messages = document.getElementById('messages');
 const form = document.getElementById('chatForm');
@@ -7,6 +8,7 @@ const send = document.getElementById('send');
 const voice = document.getElementById('voice');
 const voiceStatus = document.getElementById('voiceStatus');
 const welcome = document.querySelector('.welcome');
+const voiceOutput = createVoiceOutput({ lang: 'en-IN' });
 
 function addMessage(role, text) {
   welcome?.remove();
@@ -26,17 +28,10 @@ createVoiceInput({
   input,
   button: voice,
   onStateChange(state) {
-    if (!state.supported) {
-      voiceStatus.textContent = 'Voice input is not supported by this browser.';
-      return;
-    }
-    if (state.listening) {
-      voiceStatus.textContent = 'Listening… speak now';
-    } else if (state.error) {
-      voiceStatus.textContent = `Voice: ${state.error}`;
-    } else {
-      voiceStatus.textContent = 'Enter to send · Shift+Enter for a new line';
-    }
+    if (!state.supported) voiceStatus.textContent = 'Voice input is not supported by this browser.';
+    else if (state.listening) voiceStatus.textContent = 'Listening… speak now';
+    else if (state.error) voiceStatus.textContent = `Voice: ${state.error}`;
+    else voiceStatus.textContent = 'Enter to send · Shift+Enter for a new line';
   },
 });
 
@@ -51,9 +46,13 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message }) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed');
-    addMessage('friday', data.answer || 'I did not receive an answer.');
+    const answer = data.answer || 'I did not receive an answer.';
+    addMessage('friday', answer);
+    if (voiceOutput.supported) voiceOutput.speak(answer);
   } catch (error) {
-    addMessage('friday', `I couldn't complete that request: ${error.message}`);
+    const answer = `I couldn't complete that request: ${error.message}`;
+    addMessage('friday', answer);
+    if (voiceOutput.supported) voiceOutput.speak(answer);
   } finally {
     send.disabled = false;
     input.focus();
