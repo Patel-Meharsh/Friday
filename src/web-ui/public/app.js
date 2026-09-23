@@ -1,7 +1,11 @@
+import { createVoiceInput } from "./voice-input.js";
+
 const messages = document.getElementById('messages');
 const form = document.getElementById('chatForm');
 const input = document.getElementById('message');
 const send = document.getElementById('send');
+const voice = document.getElementById('voice');
+const voiceStatus = document.getElementById('voiceStatus');
 const welcome = document.querySelector('.welcome');
 
 function addMessage(role, text) {
@@ -17,6 +21,24 @@ function addMessage(role, text) {
   messages.appendChild(el);
   messages.scrollTop = messages.scrollHeight;
 }
+
+createVoiceInput({
+  input,
+  button: voice,
+  onStateChange(state) {
+    if (!state.supported) {
+      voiceStatus.textContent = 'Voice input is not supported by this browser.';
+      return;
+    }
+    if (state.listening) {
+      voiceStatus.textContent = 'Listening… speak now';
+    } else if (state.error) {
+      voiceStatus.textContent = `Voice: ${state.error}`;
+    } else {
+      voiceStatus.textContent = 'Enter to send · Shift+Enter for a new line';
+    }
+  },
+});
 
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
