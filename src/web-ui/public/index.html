@@ -25,11 +25,17 @@
       <div class="composer-wrap">
         <form id="chatForm" class="composer">
           <textarea id="message" rows="1" placeholder="Ask Friday anything..."></textarea>
-          <div class="composer-bottom"><span>Enter to send · Shift+Enter for a new line</span><button id="send" type="submit">➤</button></div>
+          <div class="composer-bottom">
+            <span id="voiceStatus">Enter to send · Shift+Enter for a new line</span>
+            <div class="composer-actions">
+              <button id="voice" class="voice-button" type="button" aria-label="Voice input" aria-pressed="false">🎙</button>
+              <button id="send" type="submit" aria-label="Send">➤</button>
+            </div>
+          </div>
         </form>
       </div>
     </main>
   </div>
-  <script src="/app.js"></script>
+  <script type="module" src="/app.js"></script>
 </body>
 </html>
