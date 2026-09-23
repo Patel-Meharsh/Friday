@@ -12,15 +12,18 @@ function hashToken(token) {
 
 function requireConfig() {
   if (!supabaseUrl || !supabaseKey || !enrollmentToken) {
-    throw new Error(
-      "Device server requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and FRIDAY_DEVICE_ENROLLMENT_TOKEN."
-    );
+    throw new Error("Device server requires SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and FRIDAY_DEVICE_ENROLLMENT_TOKEN.");
   }
+}
+
+function tokensMatch(provided, expected) {
+  const a = Buffer.from(String(provided));
+  const b = Buffer.from(String(expected));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 async function supabaseRequest(path, options = {}) {
   requireConfig();
-
   const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
     ...options,
     headers: {
@@ -61,10 +64,7 @@ function getBearerToken(request) {
 
 async function registerDevice(request, response) {
   const providedEnrollmentToken = request.headers["x-friday-enrollment-token"];
-  if (!providedEnrollmentToken || !crypto.timingSafeEqual(
-    Buffer.from(String(providedEnrollmentToken)),
-    Buffer.from(String(enrollmentToken))
-  )) {
+  if (!providedEnrollmentToken || !tokensMatch(providedEnrollmentToken, enrollmentToken)) {
     return sendJson(response, 401, { error: "Invalid enrollment token." });
   }
 
@@ -102,10 +102,7 @@ async function heartbeat(request, response) {
   if (!deviceToken) return sendJson(response, 401, { error: "Missing device token." });
 
   const tokenHash = hashToken(deviceToken);
-  const rows = await supabaseRequest(
-    `friday_devices?token_hash=eq.${encodeURIComponent(tokenHash)}&select=device_id`
-  );
-
+  const rows = await supabaseRequest(`friday_devices?token_hash=eq.${encodeURIComponent(tokenHash)}&select=device_id`);
   if (!rows.length) return sendJson(response, 401, { error: "Invalid device token." });
 
   const body = await readJson(request);
@@ -131,15 +128,8 @@ export function startDeviceServer() {
       if (request.method === "GET" && request.url === "/health") {
         return sendJson(response, 200, { ok: true, service: "friday-device-server" });
       }
-
-      if (request.method === "POST" && request.url === "/api/devices/register") {
-        return await registerDevice(request, response);
-      }
-
-      if (request.method === "POST" && request.url === "/api/devices/heartbeat") {
-        return await heartbeat(request, response);
-      }
-
+      if (request.method === "POST" && request.url === "/api/devices/register") return await registerDevice(request, response);
+      if (request.method === "POST" && request.url === "/api/devices/heartbeat") return await heartbeat(request, response);
       return sendJson(response, 404, { error: "Not found." });
     } catch (error) {
       console.error("Device server error:", error.message);
@@ -147,9 +137,6 @@ export function startDeviceServer() {
     }
   });
 
-  server.listen(port, () => {
-    console.log(`Device server listening on http://localhost:${port}`);
-  });
-
+  server.listen(port, () => console.log(`Device server listening on http://localhost:${port}`));
   return server;
 }
