@@ -14,6 +14,7 @@ import { startWebUI } from "./web-ui/server.js";
 import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
 import { getSecurityPolicy } from "./security/security-policy.js";
 import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
+import { getMemoryContext, memoryStatus, saveMemory } from "./memory/memory-store.js";
 
 if (!process.env.GROQ_API_KEY) {
   console.error("Missing GROQ_API_KEY. Add it to a local .env file.");
@@ -50,26 +51,45 @@ function shouldUseBuiltInTools(message) {
   return intent === "research" || intent === "execute" || /\b(latest|today|current|recent|search|research|browse|weather|price|calculate|compute|verify|run this|execute this|test this)\b/i.test(message);
 }
 
+function explicitMemoryFromMessage(message) {
+  const text = message.trim();
+  if (!/\b(remember|memorize|don't forget|do not forget|keep in mind)\b/i.test(text)) return null;
+  const match = text.match(/(?:remember|memorize|don't forget|do not forget)\s+(?:that\s+)?(.+)/i);
+  return match?.[1]?.trim() || text;
+}
+
 async function askFriday(message, forceTools = false) {
   const context = conversationContext();
   const intent = detectIntent(message, defaultLanguage);
   const useTools = forceTools || shouldUseBuiltInTools(message);
+  const longTermMemory = await getMemoryContext(message);
+  const memoryInstruction = `\nLONG-TERM MEMORY (persistent across sessions):\n${longTermMemory}\n\nUse stored memories naturally when relevant. Never claim you have no long-term memory if relevant memories are present. If the user asks what you remember, summarize the stored memories.`;
   let answer;
 
   if (useTools) {
-    answer = await askWithResilientTools({ message, context, defaultLanguage });
+    answer = await askWithResilientTools({ message, context: `${context}\n${memoryInstruction}`, defaultLanguage });
   } else {
     const routing = chooseModel(message, conversation.length);
     const preference = defaultLanguage
       ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
       : "\nNo default coding language has been selected. Never invent one for an ambiguous programming problem.";
-    const prompt = `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat it back to the user.\nDetected user intent: ${intent.intent}.${preference}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
+    const prompt = `You are continuing an ongoing conversation. Use the context and persistent memory below naturally. Do not repeat them back to the user.\nDetected user intent: ${intent.intent}.${preference}${memoryInstruction}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
     const result = await run(createFridayAgent(routing.model), prompt, { tracingDisabled: true });
     answer = result.finalOutput || "I wasn't able to produce a response.";
   }
 
   rememberConversation("user", message);
   rememberConversation("assistant", answer);
+
+  const memory = explicitMemoryFromMessage(message);
+  if (memory) {
+    try {
+      await saveMemory(memory, { source: "explicit_user_request" });
+    } catch (error) {
+      console.error(`Friday memory warning: ${error.message}`);
+    }
+  }
+
   return answer;
 }
 
@@ -80,6 +100,7 @@ function getStatus() {
     provider: "Groq",
     defaultLanguage,
     conversationMessages: conversation.length,
+    memory: memoryStatus(),
     webUI: true,
     deviceServer: true,
     security: securityPolicy,
@@ -149,6 +170,7 @@ function printBanner() {
   console.log("Device server: enabled");
   console.log("Security mode: locked-down user process");
   console.log("Background runtime: enabled (not elevated, no auto-start installation)");
+  console.log(`Memory provider: ${memoryStatus().provider}${memoryStatus().cloudConfigured ? " (configured)" : " (not configured)"}`);
   console.log("Web UI: http://localhost:3000");
   console.log("\nCommands remain available as shortcuts: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | exit\n");
 }
