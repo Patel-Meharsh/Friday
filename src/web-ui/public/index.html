@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FRIDAY</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="orb"></span><div><strong>FRIDAY</strong><small>PERSONAL AI</small></div></div>
+      <button class="nav active">◉ Chat</button>
+      <button class="nav">◌ Memory</button>
+      <button class="nav">⌁ Projects</button>
+      <button class="nav">▣ Devices</button>
+      <button class="nav">⚙ Settings</button>
+      <div class="side-status"><span class="dot"></span> Online<br><small>Local core connected</small></div>
+    </aside>
+    <main class="main">
+      <header><div><span class="eyebrow">PERSONAL AI SYSTEM</span><h1>What can I help you with?</h1></div><div class="device"><span class="dot"></span><span id="deviceName">FRIDAY CORE</span></div></header>
+      <section id="messages" class="messages">
+        <div class="welcome"><div class="big-orb"></div><h2>Good to see you.</h2><p>Ask naturally. Friday can reason, research, code, explain and use its connected tools.</p></div>
+      </section>
+      <div class="composer-wrap">
+        <form id="chatForm" class="composer">
+          <textarea id="message" rows="1" placeholder="Ask Friday anything..."></textarea>
+          <div class="composer-bottom"><span>Enter to send · Shift+Enter for a new line</span><button id="send" type="submit">➤</button></div>
+        </form>
+      </div>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>
