@@ -21,3 +21,9 @@ export async function loadOrCreateDeviceIdentity() {
     return identity;
   }
 }
+
+export async function saveDeviceToken(identity, deviceToken) {
+  const updated = { ...identity, deviceToken };
+  await fs.writeFile(identityPath, JSON.stringify(updated, null, 2), "utf8");
+  return updated;
+}
