@@ -22,7 +22,7 @@ const deviceServer = startDeviceServer();
 const rl = readline.createInterface({ input, output, terminal: true });
 const visionClient = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/groq/v1",
+  baseURL: "https://api.groq.com/openai/v1",
 });
 
 let multilineMode = false;
@@ -35,31 +35,18 @@ const MAX_CONTEXT_MESSAGES = 16;
 
 function rememberConversation(role, content) {
   conversation.push({ role, content });
-  if (conversation.length > MAX_CONTEXT_MESSAGES) {
-    conversation.splice(0, conversation.length - MAX_CONTEXT_MESSAGES);
-  }
+  if (conversation.length > MAX_CONTEXT_MESSAGES) conversation.splice(0, conversation.length - MAX_CONTEXT_MESSAGES);
 }
 
 function conversationContext() {
-  return conversation
-    .map((item) => `${item.role === "user" ? "User" : "Friday"}: ${item.content}`)
-    .join("\n\n");
+  return conversation.map((item) => `${item.role === "user" ? "User" : "Friday"}: ${item.content}`).join("\n\n");
 }
 
 function shouldUseBuiltInTools(message) {
   const text = message.toLowerCase();
-  const webSignals = [
-    "latest", "today", "current", "recent", "news", "search", "look up",
-    "research", "browse", "website", "web", "online", "what happened",
-    "price", "weather", "documentation", "docs", "release", "released",
-    "version", "update", "source", "sources", "according to",
-  ];
-  const codeSignals = [
-    "run this", "execute this", "test this", "calculate", "compute", "verify",
-    "data analysis", "plot", "simulate", "benchmark", "does this code work",
-  ];
-  return webSignals.some((signal) => text.includes(signal))
-    || codeSignals.some((signal) => text.includes(signal));
+  const webSignals = ["latest", "today", "current", "recent", "news", "search", "look up", "research", "browse", "website", "web", "online", "what happened", "price", "weather", "documentation", "docs", "release", "released", "version", "update", "source", "sources", "according to"];
+  const codeSignals = ["run this", "execute this", "test this", "calculate", "compute", "verify", "data analysis", "plot", "simulate", "benchmark", "does this code work"];
+  return webSignals.some((signal) => text.includes(signal)) || codeSignals.some((signal) => text.includes(signal));
 }
 
 async function askFriday(message, forceTools = false) {
@@ -75,8 +62,7 @@ async function askFriday(message, forceTools = false) {
       ? `\nCurrent session coding-language preference: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
       : "\nNo default coding language has been selected for this session. Never invent one for an ambiguous programming problem.";
     const prompt = `You are continuing an ongoing conversation. Use the context below naturally. Do not repeat it back to the user.${preference}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER MESSAGE:\n${message}`;
-    const agent = createFridayAgent(routing.model);
-    const result = await run(agent, prompt, { tracingDisabled: true });
+    const result = await run(createFridayAgent(routing.model), prompt, { tracingDisabled: true });
     answer = result.finalOutput || "I wasn't able to produce a response.";
   }
 
@@ -98,35 +84,22 @@ function readMultilinePrompt() {
 
 function imageMimeType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
-  return {
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".png": "image/png",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-  }[ext];
+  return { ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif" }[ext];
 }
 
 async function analyzeImage(filePath, prompt = "Analyze this image carefully. Determine what kind of problem it contains. If it contains code, an error, a programming problem, an MCQ, or a technical screenshot, identify the relevant language/topic when possible, explain what is shown, and solve or debug it. If the image is ambiguous, state what is missing.") {
   const resolvedPath = path.resolve(filePath.trim().replace(/^['"]|['"]$/g, ""));
   const mimeType = imageMimeType(resolvedPath);
   if (!mimeType) throw new Error("Unsupported image type. Use JPG, JPEG, PNG, WEBP, or GIF.");
-
   const image = await fs.readFile(resolvedPath);
   if (image.length > 20 * 1024 * 1024) throw new Error("Image is larger than the 20 MB image-input limit.");
-
-  const base64 = image.toString("base64");
   const response = await visionClient.chat.completions.create({
     model: "qwen/qwen3.8-27b",
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64}` } },
-      ],
-    }],
+    messages: [{ role: "user", content: [
+      { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
+      { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } },
+    ] }],
   });
-
   return response.choices?.[0]?.message?.content || "I couldn't extract a useful answer from that image.";
 }
 
@@ -159,92 +132,53 @@ rl.on("line", async (line) => {
     if (line.trim() === "END") {
       const body = multilineLines.join("\n").trim();
       const resolve = multilineResolve;
-      multilineMode = false;
-      multilineLines = [];
-      multilineResolve = undefined;
-      multilineReject = undefined;
-      resolve(body);
-    } else {
-      multilineLines.push(line);
-    }
+      multilineMode = false; multilineLines = []; multilineResolve = undefined; multilineReject = undefined; resolve(body);
+    } else multilineLines.push(line);
     return;
   }
 
   const trimmed = line.trim();
   const lower = trimmed.toLowerCase();
-  if (!trimmed) {
-    output.write("You: ");
-    return;
-  }
-  if (lower === "exit") {
-    console.log("Friday: Shutting down. Goodbye.");
-    rl.close();
-    return;
-  }
+  if (!trimmed) { output.write("You: "); return; }
+  if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); rl.close(); return; }
   if (lower.startsWith("language ")) {
     defaultLanguage = trimmed.slice("language ".length).trim() || null;
-    console.log(defaultLanguage
-      ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n`
-      : "Friday: No default coding language is set.\n");
-    output.write("You: ");
-    return;
+    console.log(defaultLanguage ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n` : "Friday: No default coding language is set.\n");
+    output.write("You: "); return;
   }
   if (lower === "web:" || lower === "run:") {
     try {
       const body = await readMultilinePrompt();
       if (body) {
-        const instruction = lower === "web:"
-          ? `Research this request using current web information. Cite useful sources.\n\n${body}`
-          : `Use the secure Python execution tool to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
+        const instruction = lower === "web:" ? `Research this request using current web information. Cite useful sources.\n\n${body}` : `Use the secure Python execution tool to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
         const answer = await askFriday(instruction, true);
         console.log(`\nFriday: ${answer}\n`);
       }
-    } catch (error) {
-      console.error(`Friday: ${error.message || "The request failed."}`);
-    }
-    output.write("You: ");
-    return;
+    } catch (error) { console.error(`Friday: ${error.message || "The request failed."}`); }
+    output.write("You: "); return;
   }
   if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:" || lower === "teach:") {
     const mode = lower === "paste" ? "Inspect and help with this" : trimmed.slice(0, -1);
     try {
       const body = await readMultilinePrompt();
-      if (body) {
-        const answer = await askFriday(buildMultilinePrompt(mode, body));
-        console.log(`\nFriday: ${answer}\n`);
-      }
-    } catch (error) {
-      console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
-    }
-    output.write("You: ");
-    return;
+      if (body) { const answer = await askFriday(buildMultilinePrompt(mode, body)); console.log(`\nFriday: ${answer}\n`); }
+    } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
+    output.write("You: "); return;
   }
   if (lower.startsWith("image ")) {
     try {
       console.log("Friday: Analyzing image...\n");
       const answer = await analyzeImage(trimmed.slice(6));
-      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`);
-      rememberConversation("assistant", answer);
+      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`); rememberConversation("assistant", answer);
       console.log(`Friday: ${answer}\n`);
-    } catch (error) {
-      console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`);
-    }
-    output.write("You: ");
-    return;
+    } catch (error) { console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`); }
+    output.write("You: "); return;
   }
-  try {
-    const answer = await askFriday(trimmed);
-    console.log(`Friday: ${answer}\n`);
-  } catch (error) {
-    console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
-  }
+  try { const answer = await askFriday(trimmed); console.log(`Friday: ${answer}\n`); }
+  catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
   output.write("You: ");
 });
 
-rl.on("close", () => {
-  if (multilineReject) multilineReject(new Error("Input closed while waiting for END."));
-  deviceServer.close();
-});
-
+rl.on("close", () => { if (multilineReject) multilineReject(new Error("Input closed while waiting for END.")); deviceServer.close(); });
 printBanner();
 output.write("You: ");
