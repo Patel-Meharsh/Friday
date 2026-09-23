@@ -11,6 +11,9 @@ import { detectIntent, buildNaturalIntentPrompt } from "./agent/intent-router.js
 import { askWithResilientTools } from "./core/resilient-tools.js";
 import { startDeviceServer } from "./device-server.js";
 import { startWebUI } from "./web-ui/server.js";
+import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
+import { getSecurityPolicy } from "./security/security-policy.js";
+import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
 
 if (!process.env.GROQ_API_KEY) {
   console.error("Missing GROQ_API_KEY. Add it to a local .env file.");
@@ -20,6 +23,7 @@ if (!process.env.GROQ_API_KEY) {
 process.env.OPENAI_API_KEY = process.env.GROQ_API_KEY;
 process.env.OPENAI_BASE_URL = "https://api.groq.com/openai/v1";
 
+const securityPolicy = await initializeSecurity();
 const deviceServer = startDeviceServer();
 const rl = readline.createInterface({ input, output, terminal: true });
 const visionClient = new OpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: "https://api.groq.com/openai/v1" });
@@ -72,12 +76,14 @@ async function askFriday(message, forceTools = false) {
 function getStatus() {
   return {
     online: true,
-    version: "1.0.0",
+    version: "1.1.0",
     provider: "Groq",
     defaultLanguage,
     conversationMessages: conversation.length,
     webUI: true,
     deviceServer: true,
+    security: securityPolicy,
+    backgroundRuntime: getBackgroundRuntimeStatus(),
     capabilities: {
       generalAI: true,
       webResearch: true,
@@ -85,11 +91,20 @@ function getStatus() {
       memory: true,
       imageUnderstanding: true,
       deviceAgent: true,
+      filesystemRead: true,
+      filesystemWrite: false,
+      terminal: false,
+      applications: false,
+      keyboard: false,
+      mouse: false,
+      remoteControl: false,
+      admin: false,
     },
   };
 }
 
 startWebUI({ askFriday, getStatus });
+await startBackgroundRuntime();
 
 function readMultilinePrompt() {
   return new Promise((resolve, reject) => {
@@ -124,7 +139,7 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
 }
 
 function printBanner() {
-  console.log("\nFRIDAY v1.0 is online.");
+  console.log("\nFRIDAY v1.1 is online.");
   console.log("AI provider: Groq");
   console.log("Adaptive model routing: enabled");
   console.log("Natural intent detection: enabled");
@@ -132,6 +147,8 @@ function printBanner() {
   console.log("Web research + secure execution: enabled");
   console.log("Memory + image understanding: enabled");
   console.log("Device server: enabled");
+  console.log("Security mode: locked-down user process");
+  console.log("Background runtime: enabled (not elevated, no auto-start installation)");
   console.log("Web UI: http://localhost:3000");
   console.log("\nCommands remain available as shortcuts: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | exit\n");
 }
@@ -165,7 +182,7 @@ rl.on("line", async (line) => {
   const trimmed = line.trim();
   const lower = trimmed.toLowerCase();
   if (!trimmed) { output.write("You: "); return; }
-  if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); rl.close(); return; }
+  if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); await stopBackgroundRuntime("user_exit"); await shutdownSecurity("user_exit"); rl.close(); return; }
 
   if (lower.startsWith("language ")) {
     defaultLanguage = trimmed.slice("language ".length).trim() || null;
@@ -209,6 +226,12 @@ rl.on("line", async (line) => {
   output.write("You: ");
 });
 
-rl.on("close", () => { if (multilineReject) multilineReject(new Error("Input closed while waiting for END.")); deviceServer.close(); });
+rl.on("close", async () => {
+  if (multilineReject) multilineReject(new Error("Input closed while waiting for END."));
+  await stopBackgroundRuntime("input_closed");
+  await shutdownSecurity("input_closed");
+  deviceServer.close();
+});
+
 printBanner();
 output.write("You: ");
