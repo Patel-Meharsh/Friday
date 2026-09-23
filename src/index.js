@@ -13,6 +13,7 @@ import { startDeviceServer } from "./device-server.js";
 import { startWebUI } from "./web-ui/server.js";
 import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
 import { getSecurityPolicy } from "./security/security-policy.js";
+import { getPermissions, assertPermission } from "./security/permission-manager.js";
 import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
 import { getMemoryContext, memoryStatus, saveMemory } from "./memory/memory-store.js";
 
@@ -67,6 +68,7 @@ async function askFriday(message, forceTools = false) {
   let answer;
 
   if (useTools) {
+    await assertPermission("webResearch", { reason: "Built-in research/execution tool request" });
     answer = await askWithResilientTools({ message, context: `${context}\n${memoryInstruction}`, defaultLanguage });
   } else {
     const routing = chooseModel(message, conversation.length);
@@ -84,6 +86,7 @@ async function askFriday(message, forceTools = false) {
   const memory = explicitMemoryFromMessage(message);
   if (memory) {
     try {
+      await assertPermission("memory", { reason: "Explicit user memory request" });
       await saveMemory(memory, { source: "explicit_user_request" });
     } catch (error) {
       console.error(`Friday memory warning: ${error.message}`);
@@ -104,6 +107,7 @@ function getStatus() {
     webUI: true,
     deviceServer: true,
     security: securityPolicy,
+    permissions: getPermissions(),
     backgroundRuntime: getBackgroundRuntimeStatus(),
     capabilities: {
       generalAI: true,
@@ -149,6 +153,7 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
   if (!mimeType) throw new Error("Unsupported image type. Use JPG, JPEG, PNG, WEBP, or GIF.");
   const image = await fs.readFile(resolvedPath);
   if (image.length > 20 * 1024 * 1024) throw new Error("Image is larger than the 20 MB image-input limit.");
+  await assertPermission("imageUnderstanding", { reason: "User requested image analysis" });
   const response = await visionClient.chat.completions.create({
     model: "qwen/qwen3.8-27b",
     messages: [{ role: "user", content: [
@@ -169,6 +174,7 @@ function printBanner() {
   console.log("Memory + image understanding: enabled");
   console.log("Device server: enabled");
   console.log("Security mode: locked-down user process");
+  console.log("Permission gate: deny-by-default for restricted capabilities");
   console.log("Background runtime: enabled (not elevated, no auto-start installation)");
   console.log(`Memory provider: ${memoryStatus().provider}${memoryStatus().cloudConfigured ? " (configured)" : " (not configured)"}`);
   console.log("Web UI: http://localhost:3000");
@@ -205,6 +211,13 @@ rl.on("line", async (line) => {
   const lower = trimmed.toLowerCase();
   if (!trimmed) { output.write("You: "); return; }
   if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); await stopBackgroundRuntime("user_exit"); await shutdownSecurity("user_exit"); rl.close(); return; }
+
+  if (lower === "permissions" || lower === "permission status") {
+    console.log("\nFriday permission status:");
+    for (const [name, allowed] of Object.entries(getPermissions())) console.log(`${allowed ? "ALLOW" : "DENY "}  ${name}`);
+    console.log("");
+    output.write("You: "); return;
+  }
 
   if (lower.startsWith("language ")) {
     defaultLanguage = trimmed.slice("language ".length).trim() || null;
