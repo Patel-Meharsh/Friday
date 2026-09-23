@@ -1,0 +1,17 @@
+{
+  "name": "friday",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal AI agent project.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@openai/agents": "latest",
+    "zod": "latest",
+    "dotenv": "latest"
+  }
+}
