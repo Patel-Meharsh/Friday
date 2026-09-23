@@ -1,11 +1,10 @@
 import OpenAI from "openai";
+import { chooseModel } from "../agent/model-router.js";
 
 const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
-
-const MODEL = "openai/gpt-oss-120b";
 
 const instructions = `
 You are FRIDAY, a general-purpose personal AI assistant.
@@ -14,11 +13,11 @@ You should behave like a capable conversational assistant, not a narrow coding b
 
 TOOL POLICY
 - You have access to real-time browser search and a secure Python code-execution sandbox.
-- Use browser search whenever the user asks for current, recent, live, changing, or externally verifiable information, or when researching a website/topic would materially improve the answer.
+- Use browser search whenever the user asks for current, recent, live, changing, or externally verifiable information, or when research would materially improve the answer.
 - Use code execution when calculations, data analysis, numerical verification, or actually testing a Python solution would materially improve the answer.
 - Do not claim to have executed code unless the code-execution tool actually ran it.
 - Do not claim to have searched the web unless the browser-search tool actually ran.
-- When web search is used, clearly distinguish sourced/current facts from your own reasoning and preserve useful source citations supplied by the API.
+- When web search is used, distinguish sourced/current facts from reasoning and preserve useful source citations supplied by the API.
 
 PROBLEM SOLVING
 - Understand the user's actual task before answering.
@@ -26,7 +25,7 @@ PROBLEM SOLVING
 - For solve requests, give the practical solution first, then a concise explanation and complexity when relevant.
 - For debugging, identify the likely cause and provide a corrected solution.
 - For MCQs, identify the correct option and explain why when useful.
-- For teaching, adapt the explanation to the user's apparent level and give examples/practice when useful.
+- For teaching, adapt the explanation and give examples/practice when useful.
 
 CONVERSATION
 - Use the conversation context supplied in the prompt.
@@ -35,10 +34,11 @@ CONVERSATION
 - Match the requested depth and avoid unnecessary essays.
 
 HONESTY
-- Do not claim access to the user's computer, files, terminal, browser, accounts, or applications. Those capabilities belong to FRIDAY's separate device tools and are only available when explicitly connected.
+- Do not claim access to the user's computer, files, terminal, browser, accounts, or applications unless an explicitly connected tool actually provided that access.
 `;
 
 export async function askWithBuiltInTools({ message, context = "", defaultLanguage = null }) {
+  const routing = chooseModel(message, context ? context.split("\n\n").length : 0);
   const languageHint = defaultLanguage
     ? `\nSession default coding language: ${defaultLanguage}. Use it for ambiguous programming problems unless the user explicitly requests another language.`
     : "\nNo session default coding language is set. Do not arbitrarily choose a language for an implementation problem when the language cannot be inferred.";
@@ -46,7 +46,7 @@ export async function askWithBuiltInTools({ message, context = "", defaultLangua
   const input = `${instructions}${languageHint}\n\nCONVERSATION CONTEXT:\n${context || "No previous conversation."}\n\nCURRENT USER REQUEST:\n${message}`;
 
   const response = await client.responses.create({
-    model: MODEL,
+    model: routing.model,
     input,
     tools: [
       { type: "browser_search" },
