@@ -14,7 +14,7 @@ export function ttsStatus() {
   };
 }
 
-export async function synthesizeSpeech(text) {
+export async function synthesizeSpeech(text, context = {}) {
   const cleanText = normalizeSpeechText(text);
   if (!cleanText) throw new Error("There is no useful text to speak.");
 
@@ -25,6 +25,22 @@ export async function synthesizeSpeech(text) {
   const modelId = process.env.FRIDAY_TTS_MODEL_ID || DEFAULT_MODEL_ID;
   const url = `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_44100_128`;
 
+  // Keep the exact same voice/model/settings for the test button and every normal response.
+  // For chunked long replies, surrounding text helps ElevenLabs preserve prosody between chunks.
+  const body = {
+    text: cleanText,
+    model_id: modelId,
+    voice_settings: {
+      stability: 0.48,
+      similarity_boost: 0.88,
+      style: 0.28,
+      use_speaker_boost: true,
+    },
+  };
+
+  if (context.previousText) body.previous_text = normalizeSpeechText(context.previousText).slice(-1000);
+  if (context.nextText) body.next_text = normalizeSpeechText(context.nextText).slice(0, 1000);
+
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -32,16 +48,7 @@ export async function synthesizeSpeech(text) {
       "Content-Type": "application/json",
       "Accept": "audio/mpeg",
     },
-    body: JSON.stringify({
-      text: cleanText,
-      model_id: modelId,
-      voice_settings: {
-        stability: 0.48,
-        similarity_boost: 0.88,
-        style: 0.28,
-        use_speaker_boost: true,
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
