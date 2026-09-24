@@ -12,6 +12,8 @@ const DEFAULT_PERMISSIONS = Object.freeze({
   filesystemDelete: false,
   terminal: false,
   applications: false,
+  notifications: false,
+  screenUnderstanding: false,
   keyboard: false,
   mouse: false,
   remoteControl: false,
