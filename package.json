@@ -6,10 +6,10 @@
   "description": "FRIDAY personal AI assistant core.",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "node --import ./src/stage23/bootstrap.js src/index.js",
+    "dev": "node --watch --import ./src/stage23/bootstrap.js src/index.js",
     "test:stage22": "node scripts/stage22-self-test.js",
-    "test:stage23": "node scripts/stage23-integration-test.js"
+    "test:stage23": "node --import ./src/stage23/bootstrap.js scripts/stage23-integration-test.js"
   },
   "dependencies": {
     "@openai/agents": "latest",
