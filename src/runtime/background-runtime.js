@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { audit } from "../security/audit-log.js";
 import { registerTool, toolRegistryStatus } from "../tools/tool-registry.js";
 import { registerDefaultLocalTools } from "../tools/registry-defaults.js";
+import { registerAutomationTools } from "../automation/register-automation-tools.js";
 import { getPermissions } from "../security/permission-manager.js";
 
 const MAX_TASKS = Math.max(1, Math.min(Number(process.env.FRIDAY_MAX_BACKGROUND_TASKS) || 32, 100));
@@ -57,9 +58,7 @@ function armTask(task, delayMs) {
   if (stopping || task.cancelled) return;
   task.timer = setTimeout(async () => {
     await executeTask(task);
-    if (!task.once && !task.cancelled && tasks.has(task.id) && !stopping) {
-      armTask(task, task.intervalMs);
-    }
+    if (!task.once && !task.cancelled && tasks.has(task.id) && !stopping) armTask(task, task.intervalMs);
   }, delayMs);
   task.timer.unref?.();
 }
@@ -69,25 +68,14 @@ export function scheduleTask({ name, delayMs = 0, intervalMs = null, once = true
   if (typeof execute !== "function") throw new TypeError("A task must provide an execute function.");
 
   const task = {
-    id: randomUUID(),
-    name: String(name || "background-task").slice(0, 100),
-    once: Boolean(once),
-    intervalMs: normalizeDelay(intervalMs),
-    timer: null,
-    execute,
-    cancelled: false,
-    running: false,
-    runCount: 0,
-    lastStartedAt: null,
-    lastCompletedAt: null,
-    lastError: null,
-    createdAt: new Date().toISOString(),
+    id: randomUUID(), name: String(name || "background-task").slice(0, 100), once: Boolean(once),
+    intervalMs: normalizeDelay(intervalMs), timer: null, execute, cancelled: false, running: false,
+    runCount: 0, lastStartedAt: null, lastCompletedAt: null, lastError: null, createdAt: new Date().toISOString(),
   };
 
   tasks.set(task.id, task);
   armTask(task, Math.max(0, Math.min(Number(delayMs) || 0, 2_147_483_647)));
   void audit("background_task_scheduled", { taskId: task.id, name: task.name, once: task.once, intervalMs: task.once ? null : task.intervalMs });
-
   return publicTask(task);
 }
 
@@ -98,106 +86,46 @@ export function cancelTask(taskId) {
   return removeTask(task.id);
 }
 
-export function listScheduledTasks() {
-  return [...tasks.values()].map(publicTask);
-}
+export function listScheduledTasks() { return [...tasks.values()].map(publicTask); }
 
 function publicTask(task) {
-  return {
-    id: task.id,
-    name: task.name,
-    once: task.once,
-    intervalMs: task.once ? null : task.intervalMs,
-    running: task.running,
-    runCount: task.runCount,
-    lastStartedAt: task.lastStartedAt,
-    lastCompletedAt: task.lastCompletedAt,
-    lastError: task.lastError,
-    createdAt: task.createdAt,
-  };
+  return { id: task.id, name: task.name, once: task.once, intervalMs: task.once ? null : task.intervalMs, running: task.running, runCount: task.runCount, lastStartedAt: task.lastStartedAt, lastCompletedAt: task.lastCompletedAt, lastError: task.lastError, createdAt: task.createdAt };
 }
 
 function registerRuntimeTools() {
   if (runtimeToolsRegistered) return;
   registerDefaultLocalTools();
-  registerTool({
-    name: "runtime_status",
-    description: "Read Friday's safe runtime status without changing anything.",
-    capability: "generalAI",
-    execute: async () => ({ runtime: getBackgroundRuntimeStatus(), permissions: getPermissions() }),
-  });
-  registerTool({
-    name: "list_tools",
-    description: "List the tools currently registered with Friday.",
-    capability: "generalAI",
-    execute: async () => toolRegistryStatus(),
-  });
-  registerTool({
-    name: "list_scheduled_tasks",
-    description: "List temporary in-process background tasks created during this Friday session.",
-    capability: "generalAI",
-    execute: async () => listScheduledTasks(),
-  });
-  registerTool({
-    name: "cancel_session_task",
-    description: "Cancel a temporary in-process background task.",
-    capability: "generalAI",
-    execute: async ({ taskId }) => ({ cancelled: cancelTask(taskId) }),
-    input: { taskId: "string" },
-  });
+  registerAutomationTools();
+  registerTool({ name: "runtime_status", description: "Read Friday's safe runtime status without changing anything.", capability: "generalAI", execute: async () => ({ runtime: getBackgroundRuntimeStatus(), permissions: getPermissions() }) });
+  registerTool({ name: "list_tools", description: "List the tools currently registered with Friday.", capability: "generalAI", execute: async () => toolRegistryStatus() });
+  registerTool({ name: "list_scheduled_tasks", description: "List temporary in-process background tasks created during this Friday session.", capability: "generalAI", execute: async () => listScheduledTasks() });
+  registerTool({ name: "cancel_session_task", description: "Cancel a temporary in-process background task.", capability: "generalAI", execute: async ({ taskId }) => ({ cancelled: cancelTask(taskId) }), input: { taskId: "string" } });
   runtimeToolsRegistered = true;
 }
 
 export async function startBackgroundRuntime({ intervalMs = DEFAULT_HEARTBEAT_MS } = {}) {
   registerRuntimeTools();
   if (heartbeatTimer) return;
-
   stopping = false;
   const heartbeatInterval = normalizeDelay(intervalMs);
   await audit("background_runtime_started", { pid: process.pid, intervalMs: heartbeatInterval, maxTasks: MAX_TASKS });
-
   heartbeatTimer = setInterval(async () => {
     if (stopping) return;
     lastHeartbeatAt = new Date().toISOString();
-    try {
-      await audit("background_runtime_heartbeat", { pid: process.pid, scheduledTasks: tasks.size, runningTasks });
-    } catch (error) {
-      console.error(`FRIDAY runtime audit error: ${error.message}`);
-    }
+    try { await audit("background_runtime_heartbeat", { pid: process.pid, scheduledTasks: tasks.size, runningTasks }); }
+    catch (error) { console.error(`FRIDAY runtime audit error: ${error.message}`); }
   }, heartbeatInterval);
-
   heartbeatTimer.unref?.();
 }
 
 export async function stopBackgroundRuntime(reason = "normal") {
   stopping = true;
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer);
-    heartbeatTimer = null;
-  }
-
-  for (const task of tasks.values()) {
-    task.cancelled = true;
-    if (task.timer) clearTimeout(task.timer);
-  }
+  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  for (const task of tasks.values()) { task.cancelled = true; if (task.timer) clearTimeout(task.timer); }
   tasks.clear();
-
   await audit("background_runtime_stopped", { reason, pid: process.pid });
 }
 
 export function getBackgroundRuntimeStatus() {
-  return {
-    enabled: true,
-    running: Boolean(heartbeatTimer),
-    pid: process.pid,
-    mode: "user-process",
-    autoStart: false,
-    elevated: false,
-    networkExposure: "localhost-only",
-    scheduledTasks: tasks.size,
-    runningTasks,
-    maxTasks: MAX_TASKS,
-    lastHeartbeatAt,
-    toolRegistry: toolRegistryStatus(),
-  };
+  return { enabled: true, running: Boolean(heartbeatTimer), pid: process.pid, mode: "user-process", autoStart: false, elevated: false, networkExposure: "localhost-only", scheduledTasks: tasks.size, runningTasks, maxTasks: MAX_TASKS, lastHeartbeatAt, toolRegistry: toolRegistryStatus() };
 }
