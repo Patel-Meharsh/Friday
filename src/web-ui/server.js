@@ -30,13 +30,12 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         const textToSpeak = String(body.text || "").trim();
         if (!textToSpeak) return json(res, { error: "Text is required." }, 400);
         const audio = await synthesizeSpeech(textToSpeak);
-        res.writeHead(200, {
-          "Content-Type": "audio/mpeg",
-          "Content-Length": audio.length,
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        });
-        return res.end(audio);
+        return sendAudio(res, audio);
+      }
+
+      if (req.url === "/api/tts/test" && req.method === "POST") {
+        const audio = await synthesizeSpeech("Good morning, Meharsh. I am Friday, your personal AI assistant. All systems are online and ready. How may I assist you?");
+        return sendAudio(res, audio);
       }
 
       if (req.method === "GET") {
@@ -57,6 +56,16 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
 
   server.listen(port, "127.0.0.1", () => console.log(`FRIDAY WEB UI: http://localhost:${port}`));
   return server;
+}
+
+function sendAudio(res, audio) {
+  res.writeHead(200, {
+    "Content-Type": "audio/mpeg",
+    "Content-Length": audio.length,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+  });
+  return res.end(audio);
 }
 
 function readJson(req) {
