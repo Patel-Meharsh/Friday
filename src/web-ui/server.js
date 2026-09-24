@@ -6,20 +6,21 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
 
-export function startWebUI({ askFriday, getStatus }) {
+export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessage }) {
   const port = Number(process.env.FRIDAY_WEB_PORT || 3000);
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.url === "/api/status" && req.method === "GET") {
-        return json(res, getStatus());
-      }
+      if (req.url === "/api/status" && req.method === "GET") return json(res, getStatus());
+      if (req.url === "/api/history" && req.method === "GET") return json(res, { history: await getChatHistory(200) });
 
       if (req.url === "/api/chat" && req.method === "POST") {
         const body = await readJson(req);
         const message = String(body.message || "").trim();
         if (!message) return json(res, { error: "Message is required." }, 400);
+        await saveChatMessage("user", message);
         const answer = await askFriday(message, Boolean(body.forceTools));
+        await saveChatMessage("assistant", answer);
         return json(res, { answer });
       }
 
@@ -33,17 +34,13 @@ export function startWebUI({ askFriday, getStatus }) {
         res.writeHead(200, { "Content-Type": type });
         return res.end(data);
       }
-
       return text(res, "Not found", 404);
     } catch (error) {
       return json(res, { error: error?.message || "Friday web server error." }, 500);
     }
   });
 
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`FRIDAY WEB UI: http://localhost:${port}`);
-  });
-
+  server.listen(port, "127.0.0.1", () => console.log(`FRIDAY WEB UI: http://localhost:${port}`));
   return server;
 }
 
