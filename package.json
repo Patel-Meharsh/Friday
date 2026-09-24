@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test:stage22": "node scripts/stage22-self-test.js"
+    "test:stage22": "node scripts/stage22-self-test.js",
+    "test:stage23": "node scripts/stage23-self-test.js"
   },
   "dependencies": {
     "@openai/agents": "latest",
