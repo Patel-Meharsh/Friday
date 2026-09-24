@@ -8,6 +8,7 @@ const emptyMemory = {
   user: { preferredName: null },
   facts: [],
   preferences: {},
+  chatHistory: [],
 };
 
 function cloudReady() {
@@ -22,8 +23,8 @@ function headers() {
   };
 }
 
-function normalize(value) {
-  return String(value ?? "").replace(/[\r\n]/g, " ").trim().slice(0, 2000);
+function normalize(value, max = 2000) {
+  return String(value ?? "").replace(/[\r\n]/g, " ").trim().slice(0, max);
 }
 
 function cloneMemory(memory) {
@@ -89,13 +90,11 @@ export async function saveMemory(content, _metadata = {}) {
   const memory = await getCloudMemory();
   const lower = text.toLowerCase();
 
-  // Identity facts are stored in the authoritative user profile.
   const nameMatch = text.match(/\b(?:my name is|call me|i am)\s+([a-z][a-z .'-]{1,80})/i);
   if (nameMatch) {
     memory.user.preferredName = nameMatch[1].trim().replace(/[.!?]+$/, "");
   }
 
-  // Preserve the user's important facts without creating duplicates.
   if (!nameMatch && !memory.facts.some((fact) => String(fact).toLowerCase() === lower)) {
     memory.facts.unshift(text);
   }
@@ -103,6 +102,27 @@ export async function saveMemory(content, _metadata = {}) {
   memory.facts = memory.facts.slice(0, 100);
   await putCloudMemory(memory);
   return { saved: true };
+}
+
+export async function saveChatMessage(role, content) {
+  if (!cloudReady()) return { saved: false, reason: "cloud_memory_not_configured" };
+  const normalizedRole = role === "assistant" ? "assistant" : "user";
+  const text = normalize(content, 12000);
+  if (!text) return { saved: false, reason: "empty" };
+
+  const memory = await getCloudMemory();
+  memory.chatHistory = Array.isArray(memory.chatHistory) ? memory.chatHistory : [];
+  memory.chatHistory.push({ role: normalizedRole, content: text, createdAt: new Date().toISOString() });
+  // Keep a useful persistent history without allowing the memory row to grow forever.
+  memory.chatHistory = memory.chatHistory.slice(-200);
+  await putCloudMemory(memory);
+  return { saved: true };
+}
+
+export async function getChatHistory(limit = 100) {
+  if (!cloudReady()) return [];
+  const memory = await getCloudMemory();
+  return (Array.isArray(memory.chatHistory) ? memory.chatHistory : []).slice(-Math.max(1, Math.min(limit, 200)));
 }
 
 export async function searchMemories(query = "", limit = 12) {
@@ -130,10 +150,7 @@ export async function searchMemories(query = "", limit = 12) {
   return rows
     .map((row) => ({
       row,
-      score: terms.reduce(
-        (score, term) => score + (row.content.toLowerCase().includes(term) ? 1 : 0),
-        0
-      ),
+      score: terms.reduce((score, term) => score + (row.content.toLowerCase().includes(term) ? 1 : 0), 0),
     }))
     .filter(({ score }) => score > 0)
     .sort((a, b) => b.score - a.score)
