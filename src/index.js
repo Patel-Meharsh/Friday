@@ -15,7 +15,7 @@ import { initializeSecurity, shutdownSecurity } from "./security/runtime-securit
 import { getSecurityPolicy } from "./security/security-policy.js";
 import { getPermissions, assertPermission } from "./security/permission-manager.js";
 import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
-import { getMemoryContext, memoryStatus, saveMemory } from "./memory/memory-store.js";
+import { getMemoryContext, memoryStatus, saveMemory, saveChatMessage, getChatHistory } from "./memory/memory-store.js";
 
 if (!process.env.GROQ_API_KEY) {
   console.error("Missing GROQ_API_KEY. Add it to a local .env file.");
@@ -109,34 +109,16 @@ function getStatus() {
     security: securityPolicy,
     permissions: getPermissions(),
     backgroundRuntime: getBackgroundRuntimeStatus(),
-    capabilities: {
-      generalAI: true,
-      webResearch: true,
-      codeExecution: true,
-      memory: true,
-      imageUnderstanding: true,
-      deviceAgent: true,
-      filesystemRead: true,
-      filesystemWrite: false,
-      terminal: false,
-      applications: false,
-      keyboard: false,
-      mouse: false,
-      remoteControl: false,
-      admin: false,
-    },
+    capabilities: { generalAI: true, webResearch: true, codeExecution: true, memory: true, imageUnderstanding: true, deviceAgent: true, filesystemRead: true, filesystemWrite: false, terminal: false, applications: false, keyboard: false, mouse: false, remoteControl: false, admin: false },
   };
 }
 
-startWebUI({ askFriday, getStatus });
+startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessage });
 await startBackgroundRuntime();
 
 function readMultilinePrompt() {
   return new Promise((resolve, reject) => {
-    multilineMode = true;
-    multilineLines = [];
-    multilineResolve = resolve;
-    multilineReject = reject;
+    multilineMode = true; multilineLines = []; multilineResolve = resolve; multilineReject = reject;
     console.log("Friday: Paste the complete content now.");
     console.log("Friday: Type END on a new line when finished.\n");
   });
@@ -154,13 +136,7 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
   const image = await fs.readFile(resolvedPath);
   if (image.length > 20 * 1024 * 1024) throw new Error("Image is larger than the 20 MB image-input limit.");
   await assertPermission("imageUnderstanding", { reason: "User requested image analysis" });
-  const response = await visionClient.chat.completions.create({
-    model: "qwen/qwen3.8-27b",
-    messages: [{ role: "user", content: [
-      { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
-      { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } },
-    ] }],
-  });
+  const response = await visionClient.chat.completions.create({ model: "qwen/qwen3.8-27b", messages: [{ role: "user", content: [{ type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` }, { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } }] }] });
   return response.choices?.[0]?.message?.content || "I couldn't extract a useful answer from that image.";
 }
 
@@ -182,9 +158,7 @@ function printBanner() {
 }
 
 function buildMultilinePrompt(mode, body) {
-  const languageHint = defaultLanguage
-    ? `The user's current default coding language is ${defaultLanguage}. Use it if the content does not specify another language.`
-    : "No default coding language is set. If this is an implementation problem and the language cannot be inferred, ask which language the user wants.";
+  const languageHint = defaultLanguage ? `The user's current default coding language is ${defaultLanguage}. Use it if the content does not specify another language.` : "No default coding language is set. If this is an implementation problem and the language cannot be inferred, ask which language the user wants.";
   return `${mode}\n\n${buildNaturalIntentPrompt(body, defaultLanguage)}\n${languageHint}`;
 }
 
@@ -200,73 +174,34 @@ async function processMultiline(body, explicitMode = null) {
 rl.on("line", async (line) => {
   if (multilineMode) {
     if (line.trim() === "END") {
-      const body = multilineLines.join("\n").trim();
-      const resolve = multilineResolve;
+      const body = multilineLines.join("\n").trim(); const resolve = multilineResolve;
       multilineMode = false; multilineLines = []; multilineResolve = undefined; multilineReject = undefined; resolve(body);
     } else multilineLines.push(line);
     return;
   }
-
-  const trimmed = line.trim();
-  const lower = trimmed.toLowerCase();
+  const trimmed = line.trim(); const lower = trimmed.toLowerCase();
   if (!trimmed) { output.write("You: "); return; }
   if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); await stopBackgroundRuntime("user_exit"); await shutdownSecurity("user_exit"); rl.close(); return; }
-
-  if (lower === "permissions" || lower === "permission status") {
-    console.log("\nFriday permission status:");
-    for (const [name, allowed] of Object.entries(getPermissions())) console.log(`${allowed ? "ALLOW" : "DENY "}  ${name}`);
-    console.log("");
-    output.write("You: "); return;
-  }
-
-  if (lower.startsWith("language ")) {
-    defaultLanguage = trimmed.slice("language ".length).trim() || null;
-    console.log(defaultLanguage ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n` : "Friday: No default coding language is set.\n");
-    output.write("You: "); return;
-  }
-
+  if (lower === "permissions" || lower === "permission status") { console.log("\nFriday permission status:"); for (const [name, allowed] of Object.entries(getPermissions())) console.log(`${allowed ? "ALLOW" : "DENY "}  ${name}`); console.log(""); output.write("You: "); return; }
+  if (lower.startsWith("language ")) { defaultLanguage = trimmed.slice("language ".length).trim() || null; console.log(defaultLanguage ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n` : "Friday: No default coding language is set.\n"); output.write("You: "); return; }
   if (lower === "web:" || lower === "run:") {
-    try {
-      const body = await readMultilinePrompt();
-      if (body) {
-        const instruction = lower === "web:" ? `Research this request using current web information and cite useful sources.\n\n${body}` : `Use secure Python execution to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
-        const answer = await askFriday(instruction, true);
-        console.log(`\nFriday: ${answer}\n`);
-      }
-    } catch (error) { console.error(`Friday: ${error.message || "The request failed."}`); }
+    try { const body = await readMultilinePrompt(); if (body) { const instruction = lower === "web:" ? `Research this request using current web information and cite useful sources.\n\n${body}` : `Use secure Python execution to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`; const answer = await askFriday(instruction, true); console.log(`\nFriday: ${answer}\n`); } } catch (error) { console.error(`Friday: ${error.message || "The request failed."}`); }
     output.write("You: "); return;
   }
-
   if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:" || lower === "teach:") {
     const mode = lower === "paste" ? "Inspect and help with this" : trimmed.slice(0, -1);
-    try {
-      const body = await readMultilinePrompt();
-      if (body) { const answer = await processMultiline(body, mode); console.log(`\nFriday: ${answer}\n`); }
-    } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
+    try { const body = await readMultilinePrompt(); if (body) { const answer = await processMultiline(body, mode); console.log(`\nFriday: ${answer}\n`); } } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
     output.write("You: "); return;
   }
-
   if (lower.startsWith("image ")) {
-    try {
-      console.log("Friday: Analyzing image...\n");
-      const answer = await analyzeImage(trimmed.slice(6));
-      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`); rememberConversation("assistant", answer);
-      console.log(`Friday: ${answer}\n`);
-    } catch (error) { console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`); }
+    try { console.log("Friday: Analyzing image...\n"); const answer = await analyzeImage(trimmed.slice(6)); rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`); rememberConversation("assistant", answer); console.log(`Friday: ${answer}\n`); } catch (error) { console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`); }
     output.write("You: "); return;
   }
-
-  try { const answer = await askFriday(trimmed); console.log(`Friday: ${answer}\n`); }
-  catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
+  try { const answer = await askFriday(trimmed); console.log(`Friday: ${answer}\n`); } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
   output.write("You: ");
 });
 
-rl.on("close", async () => {
-  if (multilineReject) multilineReject(new Error("Input closed while waiting for END."));
-  await stopBackgroundRuntime("input_closed");
-  await shutdownSecurity("input_closed");
-  deviceServer.close();
-});
+rl.on("close", async () => { if (multilineReject) multilineReject(new Error("Input closed while waiting for END.")); await stopBackgroundRuntime("input_closed"); await shutdownSecurity("input_closed"); deviceServer.close(); });
 
 printBanner();
 output.write("You: ");
