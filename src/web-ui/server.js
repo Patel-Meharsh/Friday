@@ -29,7 +29,10 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         const body = await readJson(req);
         const textToSpeak = String(body.text || "").trim();
         if (!textToSpeak) return json(res, { error: "Text is required." }, 400);
-        const audio = await synthesizeSpeech(textToSpeak);
+        const audio = await synthesizeSpeech(textToSpeak, {
+          previousText: String(body.previousText || ""),
+          nextText: String(body.nextText || ""),
+        });
         return sendAudio(res, audio);
       }
 
