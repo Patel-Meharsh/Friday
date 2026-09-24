@@ -9,6 +9,7 @@ import { createFridayAgent } from "./agent/create-friday-agent.js";
 import { chooseModel } from "./agent/model-router.js";
 import { detectIntent, buildNaturalIntentPrompt } from "./agent/intent-router.js";
 import { askWithResilientTools } from "./core/resilient-tools.js";
+import { executeTool } from "./tools/tool-registry.js";
 import { startDeviceServer } from "./device-server.js";
 import { startWebUI } from "./web-ui/server.js";
 import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
@@ -57,6 +58,101 @@ function explicitMemoryFromMessage(message) {
   if (!/\b(remember|memorize|don't forget|do not forget|keep in mind)\b/i.test(text)) return null;
   const match = text.match(/(?:remember|memorize|don't forget|do not forget)\s+(?:that\s+)?(.+)/i);
   return match?.[1]?.trim() || text;
+}
+
+function parseReminder(message) {
+  const text = String(message ?? "").trim();
+  const match = text.match(/^remind\s+me\s+(?:to\s+)?(?:at\s+)?(.+?)\s*:\s*["“]?(.+?)["”]?$/i);
+  if (!match) {
+    const relative = text.match(/^remind\s+me\s+in\s+(\d+)\s*(seconds?|minutes?|hours?)\s*(?:to\s+)?(?:say\s+)?["“]?(.+?)["”]?$/i);
+    if (!relative) return null;
+    const amount = Number(relative[1]);
+    const unit = relative[2].toLowerCase();
+    const multiplier = unit.startsWith("second") ? 1000 : unit.startsWith("minute") ? 60_000 : 3_600_000;
+    return { message: relative[3].trim(), delayMs: amount * multiplier, once: true, displayTime: null };
+  }
+
+  const target = match[1].trim();
+  const reminderMessage = match[2].trim();
+  const recurring = target.match(/^(?:every|each)\s+(day|daily)\s+at\s+(.+)$/i);
+  if (recurring) {
+    const time = parseClock(recurring[2]);
+    if (!time) throw new Error("I couldn't understand that reminder time. Use something like 8:00 AM or 20:00.");
+    return { message: reminderMessage, ...delayUntilClock(time), once: false, intervalMs: 86_400_000, displayTime: formatIST(time.hour, time.minute) };
+  }
+
+  const tomorrow = target.match(/^tomorrow(?:\s+at\s+(.+))?$/i);
+  if (tomorrow) {
+    const time = parseClock(tomorrow[1] || "09:00");
+    if (!time) throw new Error("I couldn't understand that reminder time.");
+    return { message: reminderMessage, ...delayUntilClock(time, 1), once: true, displayTime: formatIST(time.hour, time.minute) };
+  }
+
+  const atTarget = target.match(/^at\s+(.+)$/i)?.[1] || target;
+  const time = parseClock(atTarget);
+  if (!time) return null;
+  return { message: reminderMessage, ...delayUntilClock(time), once: true, displayTime: formatIST(time.hour, time.minute) };
+}
+
+function parseClock(value) {
+  const raw = String(value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const match = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?(?:\s*IST)?$/i);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] || 0);
+  const meridiem = match[3]?.toUpperCase() || null;
+  if (minute > 59) return null;
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "AM") hour = hour === 12 ? 0 : hour;
+    if (meridiem === "PM") hour = hour === 12 ? 12 : hour + 12;
+  } else if (hour > 23) return null;
+  return { hour, minute };
+}
+
+function istNowParts() {
+  const parts = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date());
+  const result = {};
+  for (const part of parts) result[part.type] = Number(part.value);
+  return result;
+}
+
+function delayUntilClock({ hour, minute }, extraDays = 0) {
+  const now = istNowParts();
+  const targetMinutes = hour * 60 + minute;
+  const nowMinutes = now.hour * 60 + now.minute;
+  let days = extraDays;
+  if (days === 0 && targetMinutes <= nowMinutes) days = 1;
+  const target = new Date(Date.UTC(now.year, now.month - 1, now.day + days, hour, minute, 0));
+  const nowUtcAsIST = Date.UTC(now.year, now.month - 1, now.day, now.hour, now.minute, now.second);
+  return { delayMs: Math.max(1_000, target.getTime() - nowUtcAsIST), intervalMs: null };
+}
+
+function formatIST(hour, minute) {
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const h = hour % 12 || 12;
+  return `${h}:${String(minute).padStart(2, "0")} ${suffix} IST`;
+}
+
+async function handleReminderRequest(message) {
+  if (!/^remind\s+me\b/i.test(message.trim())) return null;
+  const reminder = parseReminder(message);
+  if (!reminder) return null;
+  const task = await executeTool("schedule_notification", {
+    title: "FRIDAY Reminder",
+    message: reminder.message,
+    delayMs: reminder.delayMs,
+    intervalMs: reminder.intervalMs ?? null,
+    once: reminder.once,
+    silent: false,
+  }, { reason: "Natural-language reminder request" });
+
+  const when = reminder.displayTime
+    ? reminder.displayTime
+    : `in ${Math.round(reminder.delayMs / 1000)} seconds`;
+  return `Scheduled. I’ll notify you ${when}. Task ID: ${task.id}`;
 }
 
 async function askFriday(message, forceTools = false) {
@@ -213,7 +309,11 @@ rl.on("line", async (line) => {
     try { console.log("Friday: Analyzing image...\n"); const answer = await analyzeImage(trimmed.slice(6)); rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`); rememberConversation("assistant", answer); console.log(`Friday: ${answer}\n`); } catch (error) { console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`); }
     output.write("You: "); return;
   }
-  try { const answer = await askFriday(trimmed); console.log(`Friday: ${answer}\n`); } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
+  try {
+    const reminderAnswer = await handleReminderRequest(trimmed);
+    const answer = reminderAnswer || await askFriday(trimmed);
+    console.log(`Friday: ${answer}\n`);
+  } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
   output.write("You: ");
 });
 
