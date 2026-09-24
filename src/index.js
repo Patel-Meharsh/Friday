@@ -99,7 +99,7 @@ async function askFriday(message, forceTools = false) {
 function getStatus() {
   return {
     online: true,
-    version: "1.1.0",
+    version: "1.2.0",
     provider: "Groq",
     defaultLanguage,
     conversationMessages: conversation.length,
@@ -141,13 +141,16 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
 }
 
 function printBanner() {
-  console.log("\nFRIDAY v1.1 is online.");
+  console.log("\nFRIDAY v1.2 is online.");
   console.log("AI provider: Groq");
   console.log("Adaptive model routing: enabled");
   console.log("Natural intent detection: enabled");
   console.log("Autonomous problem solving: enabled");
   console.log("Web research + secure execution: enabled");
   console.log("Memory + image understanding: enabled");
+  console.log("Natural neural voice: enabled");
+  console.log(`Friday voice ID: ${(process.env.FRIDAY_TTS_VOICE_ID || "k35rKPuEoftGtGOjfWXj").slice(-6)}`);
+  console.log(`Friday TTS model: ${process.env.FRIDAY_TTS_MODEL_ID || "eleven_v3"}`);
   console.log("Device server: enabled");
   console.log("Security mode: locked-down user process");
   console.log("Permission gate: deny-by-default for restricted capabilities");
