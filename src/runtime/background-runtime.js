@@ -1,6 +1,8 @@
 import process from "node:process";
 import { randomUUID } from "node:crypto";
 import { audit } from "../security/audit-log.js";
+import { registerTool, toolRegistryStatus } from "../tools/tool-registry.js";
+import { getPermissions } from "../security/permission-manager.js";
 
 const MAX_TASKS = 32;
 const MIN_INTERVAL_MS = 1_000;
@@ -10,6 +12,7 @@ let heartbeatTimer = null;
 let stopping = false;
 let lastHeartbeatAt = null;
 let runningTasks = 0;
+let runtimeToolsRegistered = false;
 
 function normalizeDelay(value, fallback = 60_000) {
   const delay = Number(value);
@@ -112,7 +115,38 @@ function publicTask(task) {
   };
 }
 
+function registerRuntimeTools() {
+  if (runtimeToolsRegistered) return;
+  registerTool({
+    name: "runtime_status",
+    description: "Read Friday's safe runtime status without changing anything.",
+    capability: "generalAI",
+    execute: async () => ({ runtime: getBackgroundRuntimeStatus(), permissions: getPermissions() }),
+  });
+  registerTool({
+    name: "list_tools",
+    description: "List the tools currently registered with Friday.",
+    capability: "generalAI",
+    execute: async () => toolRegistryStatus(),
+  });
+  registerTool({
+    name: "list_scheduled_tasks",
+    description: "List temporary in-process background tasks created during this Friday session.",
+    capability: "generalAI",
+    execute: async () => listScheduledTasks(),
+  });
+  registerTool({
+    name: "cancel_session_task",
+    description: "Cancel a temporary in-process background task.",
+    capability: "generalAI",
+    execute: async ({ taskId }) => ({ cancelled: cancelTask(taskId) }),
+    input: { taskId: "string" },
+  });
+  runtimeToolsRegistered = true;
+}
+
 export async function startBackgroundRuntime({ intervalMs = 60_000 } = {}) {
+  registerRuntimeTools();
   if (heartbeatTimer) return;
 
   stopping = false;
@@ -161,5 +195,6 @@ export function getBackgroundRuntimeStatus() {
     runningTasks,
     maxTasks: MAX_TASKS,
     lastHeartbeatAt,
+    toolRegistry: toolRegistryStatus(),
   };
 }
