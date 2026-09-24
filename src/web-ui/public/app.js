@@ -11,6 +11,7 @@ const welcome = document.querySelector('.welcome');
 let voiceMode = false;
 let activeAudio = null;
 let activeAudioUrl = null;
+let speechRun = 0;
 
 function addMessage(role, text) {
   welcome?.remove();
@@ -38,9 +39,12 @@ async function loadHistory() {
 }
 
 function stopSpeaking() {
+  speechRun += 1;
   if (activeAudio) {
     activeAudio.pause();
     activeAudio.currentTime = 0;
+    activeAudio.onended = null;
+    activeAudio.onerror = null;
     activeAudio = null;
   }
   if (activeAudioUrl) {
@@ -49,19 +53,54 @@ function stopSpeaking() {
   }
 }
 
-async function speakNaturally(text) {
-  const cleanText = String(text || '').trim();
-  if (!cleanText) return false;
+function splitSpeechText(text, maxChars = 420) {
+  const normalized = String(text || '')
+    .replace(/```[\s\S]*?```/g, 'I provided the code in the chat.')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/#{1,6}\s*/g, '')
+    .replace(/\[(.*?)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 5000);
 
-  stopSpeaking();
-  voiceStatus.textContent = 'Friday is preparing a natural voice response…';
+  if (!normalized) return [];
+  const sentences = normalized.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [normalized];
+  const chunks = [];
+  let current = '';
 
+  for (const sentence of sentences) {
+    const part = sentence.trim();
+    if (!part) continue;
+    if ((current + ' ' + part).trim().length <= maxChars) {
+      current = `${current} ${part}`.trim();
+      continue;
+    }
+    if (current) chunks.push(current);
+    if (part.length <= maxChars) {
+      current = part;
+      continue;
+    }
+    for (const word of part.split(/\s+/)) {
+      if ((current + ' ' + word).trim().length > maxChars && current) {
+        chunks.push(current);
+        current = word;
+      } else {
+        current = `${current} ${word}`.trim();
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+async function fetchSpeechChunk(text) {
   const response = await fetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: cleanText }),
+    body: JSON.stringify({ text }),
   });
-
   if (!response.ok) {
     let message = 'Natural voice is unavailable.';
     try {
@@ -70,24 +109,51 @@ async function speakNaturally(text) {
     } catch {}
     throw new Error(message);
   }
+  return response.blob();
+}
 
-  const blob = await response.blob();
-  activeAudioUrl = URL.createObjectURL(blob);
-  activeAudio = new Audio(activeAudioUrl);
-  activeAudio.preload = 'auto';
-  activeAudio.onplay = () => { voiceStatus.textContent = 'Friday is speaking…'; };
-  activeAudio.onended = () => {
-    stopSpeaking();
+async function speakNaturally(text) {
+  const chunks = splitSpeechText(text);
+  if (!chunks.length) return false;
+
+  stopSpeaking();
+  const run = speechRun;
+  voiceStatus.textContent = 'Friday is preparing a natural voice response…';
+
+  // Start the first sentence immediately. While it is playing, prefetch the next one.
+  let nextBlobPromise = fetchSpeechChunk(chunks[0]);
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    if (run !== speechRun) return false;
+
+    const blob = await nextBlobPromise;
+    if (run !== speechRun) return false;
+
+    if (index + 1 < chunks.length) {
+      nextBlobPromise = fetchSpeechChunk(chunks[index + 1]);
+    }
+
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    activeAudio.preload = 'auto';
+    activeAudio.onplay = () => { voiceStatus.textContent = 'Friday is speaking…'; };
+
+    await new Promise((resolve, reject) => {
+      activeAudio.onended = resolve;
+      activeAudio.onerror = () => reject(new Error('Audio playback failed.'));
+      activeAudio.play().catch(reject);
+    });
+
+    if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+    activeAudio = null;
+  }
+
+  if (run === speechRun) {
     voiceStatus.textContent = voiceMode
       ? 'Voice conversation ready — speak again when you are ready.'
       : 'Natural voice ready';
-  };
-  activeAudio.onerror = () => {
-    stopSpeaking();
-    voiceStatus.textContent = 'Audio playback failed; text response shown.';
-  };
-
-  await activeAudio.play();
+  }
   return true;
 }
 
@@ -129,8 +195,10 @@ createVoiceInput({
   button: voice,
   onStateChange(state) {
     if (!state.supported) voiceStatus.textContent = 'Voice input is not supported by this browser.';
-    else if (state.listening) voiceStatus.textContent = 'Listening… speak now';
-    else if (state.error) voiceStatus.textContent = `Voice: ${state.error}`;
+    else if (state.listening) {
+      stopSpeaking();
+      voiceStatus.textContent = 'Listening… speak now';
+    } else if (state.error) voiceStatus.textContent = `Voice: ${state.error}`;
     else if (!activeAudio) voiceStatus.textContent = 'Voice command will send automatically';
   },
   onFinalTranscript: (text) => sendMessage(text, { fromVoice: true }),
