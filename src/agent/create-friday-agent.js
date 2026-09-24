@@ -6,6 +6,7 @@ import {
   rememberTool,
   setNameTool,
 } from "../tools/memory.js";
+import { fridayToolRegistryTool } from "../tools/registry-agent-tool.js";
 
 const instructions = `
 You are FRIDAY: a capable, natural, general-purpose personal AI assistant. Behave like a high-quality conversational AI assistant, not a narrow coding bot.
@@ -31,6 +32,7 @@ CODING
 
 TOOLS AND HONESTY
 - Use available tools when appropriate.
+- Use the friday_tool only when a registered local tool is relevant and its exact name is known or can be inferred from the available tool descriptions.
 - Never claim to have browsed, executed code, inspected a file, or performed an external action unless a tool actually did it.
 - Current date/time and memory should come from their tools when needed.
 `;
@@ -46,6 +48,7 @@ export function createFridayAgent(model) {
       rememberTool,
       setNameTool,
       recallMemoryTool,
+      fridayToolRegistryTool,
     ],
   });
 }
