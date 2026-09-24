@@ -1,13 +1,16 @@
-const DEFAULT_VOICE_ID = "JBFqnCBsd6RMkjVDRZzb";
-const DEFAULT_MODEL_ID = "eleven_flash_v2_5";
+const DEFAULT_VOICE_ID = "k35rKPuEoftGtGOjfWXj";
+const DEFAULT_MODEL_ID = "eleven_v3";
 
 export function ttsStatus() {
+  const voiceId = process.env.FRIDAY_TTS_VOICE_ID || DEFAULT_VOICE_ID;
   return {
     provider: process.env.FRIDAY_TTS_PROVIDER || "elevenlabs",
-    configured: Boolean(process.env.ELEVENLABS_API_KEY && process.env.FRIDAY_TTS_VOICE_ID),
+    configured: Boolean(process.env.ELEVENLABS_API_KEY && voiceId),
     model: process.env.FRIDAY_TTS_MODEL_ID || DEFAULT_MODEL_ID,
-    voiceConfigured: Boolean(process.env.FRIDAY_TTS_VOICE_ID),
-    mode: "low-latency neural TTS",
+    voiceConfigured: Boolean(process.env.FRIDAY_TTS_VOICE_ID || DEFAULT_VOICE_ID),
+    voiceIdSuffix: voiceId.slice(-6),
+    mode: "natural neural conversational TTS",
+    browserSpeechSynthesis: false,
   };
 }
 
@@ -33,9 +36,9 @@ export async function synthesizeSpeech(text) {
       text: cleanText,
       model_id: modelId,
       voice_settings: {
-        stability: 0.52,
-        similarity_boost: 0.82,
-        style: 0.22,
+        stability: 0.48,
+        similarity_boost: 0.88,
+        style: 0.28,
         use_speaker_boost: true,
       },
     }),
@@ -43,7 +46,7 @@ export async function synthesizeSpeech(text) {
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`Natural TTS request failed (${response.status})${detail ? `: ${detail.slice(0, 300)}` : "."}`);
+    throw new Error(`Natural TTS request failed (${response.status})${detail ? `: ${detail.slice(0, 500)}` : "."}`);
   }
 
   return Buffer.from(await response.arrayBuffer());
@@ -57,6 +60,7 @@ function normalizeSpeechText(text) {
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/#{1,6}\s*/g, "")
     .replace(/\[(.*?)\]\([^)]*\)/g, "$1")
+    .replace(/\|/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 5000);
