@@ -2,6 +2,7 @@ import process from "node:process";
 import { randomUUID } from "node:crypto";
 import { audit } from "../security/audit-log.js";
 import { registerTool, toolRegistryStatus } from "../tools/tool-registry.js";
+import { registerDefaultLocalTools } from "../tools/registry-defaults.js";
 import { getPermissions } from "../security/permission-manager.js";
 
 const MAX_TASKS = Math.max(1, Math.min(Number(process.env.FRIDAY_MAX_BACKGROUND_TASKS) || 32, 100));
@@ -118,6 +119,7 @@ function publicTask(task) {
 
 function registerRuntimeTools() {
   if (runtimeToolsRegistered) return;
+  registerDefaultLocalTools();
   registerTool({
     name: "runtime_status",
     description: "Read Friday's safe runtime status without changing anything.",
