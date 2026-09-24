@@ -6,6 +6,7 @@ const input = document.getElementById('message');
 const send = document.getElementById('send');
 const voice = document.getElementById('voice');
 const voiceStatus = document.getElementById('voiceStatus');
+const testVoice = document.getElementById('testVoice');
 const welcome = document.querySelector('.welcome');
 
 let voiceMode = false;
@@ -61,6 +62,7 @@ function splitSpeechText(text, maxChars = 420) {
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/#{1,6}\s*/g, '')
     .replace(/\[(.*?)\]\([^)]*\)/g, '$1')
+    .replace(/\|/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 5000);
@@ -120,7 +122,6 @@ async function speakNaturally(text) {
   const run = speechRun;
   voiceStatus.textContent = 'Friday is preparing a natural voice response…';
 
-  // Start the first sentence immediately. While it is playing, prefetch the next one.
   let nextBlobPromise = fetchSpeechChunk(chunks[0]);
 
   for (let index = 0; index < chunks.length; index += 1) {
@@ -152,9 +153,39 @@ async function speakNaturally(text) {
   if (run === speechRun) {
     voiceStatus.textContent = voiceMode
       ? 'Voice conversation ready — speak again when you are ready.'
-      : 'Natural voice ready';
+      : 'Friday natural voice ready';
   }
   return true;
+}
+
+async function testFridayVoice() {
+  stopSpeaking();
+  testVoice.disabled = true;
+  voiceStatus.textContent = 'Testing your custom Friday voice…';
+  try {
+    const response = await fetch('/api/tts/test', { method: 'POST' });
+    if (!response.ok) {
+      let message = 'Friday voice test failed.';
+      try { message = (await response.json()).error || message; } catch {}
+      throw new Error(message);
+    }
+    const blob = await response.blob();
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    await new Promise((resolve, reject) => {
+      activeAudio.onended = resolve;
+      activeAudio.onerror = () => reject(new Error('Audio playback failed.'));
+      activeAudio.play().catch(reject);
+    });
+    voiceStatus.textContent = 'Custom Friday voice test complete';
+    if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+    activeAudio = null;
+  } catch (error) {
+    voiceStatus.textContent = `Friday voice test failed: ${error.message}`;
+  } finally {
+    testVoice.disabled = false;
+  }
 }
 
 async function sendMessage(rawMessage, { fromVoice = false } = {}) {
@@ -216,4 +247,5 @@ input.addEventListener('keydown', (event) => {
   }
 });
 
+testVoice?.addEventListener('click', testFridayVoice);
 loadHistory();
