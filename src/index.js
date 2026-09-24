@@ -13,7 +13,7 @@ import { startDeviceServer } from "./device-server.js";
 import { startWebUI } from "./web-ui/server.js";
 import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
 import { getSecurityPolicy } from "./security/security-policy.js";
-import { getPermissions, assertPermission } from "./security/permission-manager.js";
+import { getPermissions, assertPermission, grantSessionPermission, revokeSessionPermission } from "./security/permission-manager.js";
 import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
 import { getMemoryContext, memoryStatus, saveMemory, saveChatMessage, getChatHistory } from "./memory/memory-store.js";
 
@@ -99,7 +99,7 @@ async function askFriday(message, forceTools = false) {
 function getStatus() {
   return {
     online: true,
-    version: "1.2.0",
+    version: "1.3.0",
     provider: "Groq",
     defaultLanguage,
     conversationMessages: conversation.length,
@@ -109,7 +109,7 @@ function getStatus() {
     security: securityPolicy,
     permissions: getPermissions(),
     backgroundRuntime: getBackgroundRuntimeStatus(),
-    capabilities: { generalAI: true, webResearch: true, codeExecution: true, memory: true, imageUnderstanding: true, deviceAgent: true, filesystemRead: true, filesystemWrite: false, terminal: false, applications: false, keyboard: false, mouse: false, remoteControl: false, admin: false },
+    capabilities: { generalAI: true, webResearch: true, codeExecution: true, memory: true, imageUnderstanding: true, deviceAgent: true, filesystemRead: true, filesystemWrite: false, terminal: false, applications: false, notifications: getPermissions().notifications, screenUnderstanding: getPermissions().screenUnderstanding, keyboard: getPermissions().keyboard, mouse: getPermissions().mouse, remoteControl: false, admin: false },
   };
 }
 
@@ -140,8 +140,19 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
   return response.choices?.[0]?.message?.content || "I couldn't extract a useful answer from that image.";
 }
 
+async function handlePermissionCommand(trimmed) {
+  const match = trimmed.match(/^permission\s+(grant|allow|revoke|deny)\s+([a-zA-Z]+)$/i);
+  if (!match) return false;
+  const action = match[1].toLowerCase();
+  const capability = match[2];
+  if (action === "grant" || action === "allow") await grantSessionPermission(capability);
+  else await revokeSessionPermission(capability);
+  console.log(`Friday: ${action === "grant" || action === "allow" ? "Allowed" : "Denied"} ${capability} for this session only.\n`);
+  return true;
+}
+
 function printBanner() {
-  console.log("\nFRIDAY v1.2 is online.");
+  console.log("\nFRIDAY v1.3 is online.");
   console.log("AI provider: Groq");
   console.log("Adaptive model routing: enabled");
   console.log("Natural intent detection: enabled");
@@ -153,11 +164,12 @@ function printBanner() {
   console.log(`Friday TTS model: ${process.env.FRIDAY_TTS_MODEL_ID || "eleven_v3"}`);
   console.log("Device server: enabled");
   console.log("Security mode: locked-down user process");
-  console.log("Permission gate: deny-by-default for restricted capabilities");
+  console.log("Permission gate: deny-by-default for notifications, screen, keyboard and mouse");
   console.log("Background runtime: enabled (not elevated, no auto-start installation)");
   console.log(`Memory provider: ${memoryStatus().provider}${memoryStatus().cloudConfigured ? " (configured)" : " (not configured)"}`);
   console.log("Web UI: http://localhost:3000");
-  console.log("\nCommands remain available as shortcuts: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | exit\n");
+  console.log("\n#23 permissions are session-only: permission allow notifications|screenUnderstanding|keyboard|mouse");
+  console.log("Commands remain available as shortcuts: paste | solve: | explain: | debug: | teach: | language <name> | web: | run: | image <path> | permissions | exit\n");
 }
 
 function buildMultilinePrompt(mode, body) {
@@ -186,6 +198,7 @@ rl.on("line", async (line) => {
   if (!trimmed) { output.write("You: "); return; }
   if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); await stopBackgroundRuntime("user_exit"); await shutdownSecurity("user_exit"); rl.close(); return; }
   if (lower === "permissions" || lower === "permission status") { console.log("\nFriday permission status:"); for (const [name, allowed] of Object.entries(getPermissions())) console.log(`${allowed ? "ALLOW" : "DENY "}  ${name}`); console.log(""); output.write("You: "); return; }
+  if (await handlePermissionCommand(trimmed)) { output.write("You: "); return; }
   if (lower.startsWith("language ")) { defaultLanguage = trimmed.slice("language ".length).trim() || null; console.log(defaultLanguage ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n` : "Friday: No default coding language is set.\n"); output.write("You: "); return; }
   if (lower === "web:" || lower === "run:") {
     try { const body = await readMultilinePrompt(); if (body) { const instruction = lower === "web:" ? `Research this request using current web information and cite useful sources.\n\n${body}` : `Use secure Python execution to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`; const answer = await askFriday(instruction, true); console.log(`\nFriday: ${answer}\n`); } } catch (error) { console.error(`Friday: ${error.message || "The request failed."}`); }
