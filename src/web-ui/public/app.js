@@ -54,7 +54,7 @@ function stopSpeaking() {
   }
 }
 
-function splitSpeechText(text, maxChars = 420) {
+function splitSpeechText(text, maxChars = 700) {
   const normalized = String(text || '')
     .replace(/```[\s\S]*?```/g, 'I provided the code in the chat.')
     .replace(/`([^`]+)`/g, '$1')
@@ -97,11 +97,11 @@ function splitSpeechText(text, maxChars = 420) {
   return chunks;
 }
 
-async function fetchSpeechChunk(text) {
+async function fetchSpeechChunk(text, previousText = '', nextText = '') {
   const response = await fetch('/api/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, previousText, nextText }),
   });
   if (!response.ok) {
     let message = 'Natural voice is unavailable.';
@@ -122,7 +122,15 @@ async function speakNaturally(text) {
   const run = speechRun;
   voiceStatus.textContent = 'Friday is preparing a natural voice response…';
 
-  let nextBlobPromise = fetchSpeechChunk(chunks[0]);
+  // Keep short replies as one generation so normal conversation and the voice test
+  // use the same voice/model/settings without artificial chunk-to-chunk changes.
+  let nextBlobPromise;
+  const makeRequest = (index) => fetchSpeechChunk(
+    chunks[index],
+    index > 0 ? chunks[index - 1] : '',
+    index + 1 < chunks.length ? chunks[index + 1] : '',
+  );
+  nextBlobPromise = makeRequest(0);
 
   for (let index = 0; index < chunks.length; index += 1) {
     if (run !== speechRun) return false;
@@ -130,9 +138,7 @@ async function speakNaturally(text) {
     const blob = await nextBlobPromise;
     if (run !== speechRun) return false;
 
-    if (index + 1 < chunks.length) {
-      nextBlobPromise = fetchSpeechChunk(chunks[index + 1]);
-    }
+    if (index + 1 < chunks.length) nextBlobPromise = makeRequest(index + 1);
 
     activeAudioUrl = URL.createObjectURL(blob);
     activeAudio = new Audio(activeAudioUrl);
