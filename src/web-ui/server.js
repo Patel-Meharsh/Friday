@@ -2,6 +2,7 @@ import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { synthesizeSpeech, ttsStatus } from "./tts.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -11,7 +12,7 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
 
   const server = http.createServer(async (req, res) => {
     try {
-      if (req.url === "/api/status" && req.method === "GET") return json(res, getStatus());
+      if (req.url === "/api/status" && req.method === "GET") return json(res, { ...getStatus(), tts: ttsStatus() });
       if (req.url === "/api/history" && req.method === "GET") return json(res, { history: await getChatHistory(200) });
 
       if (req.url === "/api/chat" && req.method === "POST") {
@@ -24,6 +25,20 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         return json(res, { answer });
       }
 
+      if (req.url === "/api/tts" && req.method === "POST") {
+        const body = await readJson(req);
+        const textToSpeak = String(body.text || "").trim();
+        if (!textToSpeak) return json(res, { error: "Text is required." }, 400);
+        const audio = await synthesizeSpeech(textToSpeak);
+        res.writeHead(200, {
+          "Content-Type": "audio/mpeg",
+          "Content-Length": audio.length,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        return res.end(audio);
+      }
+
       if (req.method === "GET") {
         const requested = req.url === "/" ? "index.html" : req.url.slice(1);
         const safePath = path.normalize(path.join(publicDir, requested));
@@ -31,7 +46,7 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         const data = await fs.readFile(safePath);
         const ext = path.extname(safePath);
         const type = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8" }[ext] || "application/octet-stream";
-        res.writeHead(200, { "Content-Type": type });
+        res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-store" });
         return res.end(data);
       }
       return text(res, "Not found", 404);
