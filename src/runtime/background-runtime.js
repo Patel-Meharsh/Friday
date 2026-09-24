@@ -4,8 +4,9 @@ import { audit } from "../security/audit-log.js";
 import { registerTool, toolRegistryStatus } from "../tools/tool-registry.js";
 import { getPermissions } from "../security/permission-manager.js";
 
-const MAX_TASKS = 32;
+const MAX_TASKS = Math.max(1, Math.min(Number(process.env.FRIDAY_MAX_BACKGROUND_TASKS) || 32, 100));
 const MIN_INTERVAL_MS = 1_000;
+const DEFAULT_HEARTBEAT_MS = Math.max(MIN_INTERVAL_MS, Math.min(Number(process.env.FRIDAY_BACKGROUND_HEARTBEAT_MS) || 60_000, 2_147_483_647));
 const tasks = new Map();
 
 let heartbeatTimer = null;
@@ -14,7 +15,7 @@ let lastHeartbeatAt = null;
 let runningTasks = 0;
 let runtimeToolsRegistered = false;
 
-function normalizeDelay(value, fallback = 60_000) {
+function normalizeDelay(value, fallback = DEFAULT_HEARTBEAT_MS) {
   const delay = Number(value);
   if (!Number.isFinite(delay)) return fallback;
   return Math.max(MIN_INTERVAL_MS, Math.min(Math.floor(delay), 2_147_483_647));
@@ -70,7 +71,7 @@ export function scheduleTask({ name, delayMs = 0, intervalMs = null, once = true
     id: randomUUID(),
     name: String(name || "background-task").slice(0, 100),
     once: Boolean(once),
-    intervalMs: normalizeDelay(intervalMs, 60_000),
+    intervalMs: normalizeDelay(intervalMs),
     timer: null,
     execute,
     cancelled: false,
@@ -145,12 +146,12 @@ function registerRuntimeTools() {
   runtimeToolsRegistered = true;
 }
 
-export async function startBackgroundRuntime({ intervalMs = 60_000 } = {}) {
+export async function startBackgroundRuntime({ intervalMs = DEFAULT_HEARTBEAT_MS } = {}) {
   registerRuntimeTools();
   if (heartbeatTimer) return;
 
   stopping = false;
-  const heartbeatInterval = normalizeDelay(intervalMs, 60_000);
+  const heartbeatInterval = normalizeDelay(intervalMs);
   await audit("background_runtime_started", { pid: process.pid, intervalMs: heartbeatInterval, maxTasks: MAX_TASKS });
 
   heartbeatTimer = setInterval(async () => {
