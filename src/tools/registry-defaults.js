@@ -1,6 +1,7 @@
 import { registerTool } from "./tool-registry.js";
 import { getMemoryContext, saveMemory } from "../memory/memory-store.js";
 import { liveWebLookup, liveNewsLookup, liveWeatherLookup } from "./web-research.js";
+import { getPermissions, isKnownCapability } from "../security/permission-manager.js";
 
 let initialized = false;
 
@@ -26,6 +27,22 @@ export function registerDefaultLocalTools() {
     description: "Get the current date and time from the machine running Friday.",
     capability: "generalAI",
     execute: async () => new Date().toString(),
+  });
+
+  registerTool({
+    name: "get_permission_status",
+    description: "Check whether a Friday capability is currently allowed for this session. Use this when the user asks whether Friday has a permission, access, or capability enabled.",
+    capability: "generalAI",
+    input: { capability: "string|null" },
+    execute: async ({ capability = null }) => {
+      const permissions = getPermissions();
+      if (capability) {
+        const name = String(capability).trim();
+        if (!isKnownCapability(name)) return JSON.stringify({ capability: name, known: false, allowed: false });
+        return JSON.stringify({ capability: name, known: true, allowed: Boolean(permissions[name]), scope: permissions[name] ? "session-or-default" : "denied" });
+      }
+      return JSON.stringify(permissions);
+    },
   });
 
   registerTool({
