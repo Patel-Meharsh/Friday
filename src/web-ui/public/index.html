@@ -10,35 +10,24 @@
   <div class="shell">
     <aside class="sidebar">
       <div class="brand"><span class="orb"></span><div><strong>FRIDAY</strong><small>PERSONAL AI</small></div></div>
-      <button class="nav active">◉ Chat</button>
-      <button class="nav">◌ Memory</button>
-      <button class="nav">⌁ Projects</button>
-      <button class="nav">▣ Devices</button>
-      <button class="nav">⚙ Settings</button>
+      <button id="newChat" class="new-chat">＋ New chat</button>
+      <div class="recent-heading">RECENT CHATS</div>
+      <div id="recentChats" class="recent-chats"></div>
+      <div class="side-nav"><button class="nav active">◉ Chat</button><button class="nav">◌ Memory</button><button class="nav">⌁ Projects</button><button class="nav">▣ Devices</button><button class="nav">⚙ Settings</button></div>
       <div class="side-status"><span class="dot"></span> Online<br><small>Local core connected</small></div>
     </aside>
     <main class="main">
       <header><div><span class="eyebrow">PERSONAL AI SYSTEM</span><h1>What can I help you with?</h1></div><div class="device"><span class="dot"></span><span id="deviceName">FRIDAY CORE</span></div></header>
-      <section id="messages" class="messages">
-        <div class="welcome"><div class="big-orb"></div><h2>Good to see you.</h2><p>Ask naturally. Friday can reason, research, code, explain and use its connected tools.</p></div>
-      </section>
+      <section id="messages" class="messages"></section>
       <div class="composer-wrap">
-        <div class="voice-test-row">
-          <button id="testVoice" class="test-voice" type="button">🔊 Test Friday's voice</button>
-        </div>
+        <div class="voice-test-row"><button id="testVoice" class="test-voice" type="button">🔊 Test Friday's voice</button></div>
         <form id="chatForm" class="composer">
           <textarea id="message" rows="1" placeholder="Ask Friday anything..."></textarea>
-          <div class="composer-bottom">
-            <span id="voiceStatus">Enter to send · Shift+Enter for a new line</span>
-            <div class="composer-actions">
-              <button id="voice" class="voice-button" type="button" aria-label="Voice input" aria-pressed="false">🎙</button>
-              <button id="send" type="submit" aria-label="Send">➤</button>
-            </div>
-          </div>
+          <div class="composer-bottom"><span id="voiceStatus">Enter to send · Shift+Enter for a new line</span><div class="composer-actions"><button id="voice" class="voice-button" type="button" aria-label="Voice input">🎙</button><button id="send" type="submit" aria-label="Send">➤</button></div></div>
         </form>
       </div>
     </main>
   </div>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/app-v2.js"></script>
 </body>
 </html>
