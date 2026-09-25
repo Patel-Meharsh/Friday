@@ -11,6 +11,8 @@ const recentChats = document.getElementById("recentChats");
 const newChatButton = document.getElementById("newChat");
 
 const STORAGE_KEY = "friday.web.chats.v2";
+const ACTIVE_CHAT_KEY = "friday.web.activeChat.v1";
+
 let chats = [];
 let activeChatId = null;
 let activeDraft = null;
@@ -19,7 +21,12 @@ let activeAudioUrl = null;
 
 function uid() { return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; }
 function titleFor(items) { const first = items.find((m) => m.role === "user"); return first?.content?.slice(0, 48) || "New chat"; }
-function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(chats.filter((chat) => chat.messages.length > 0))); }
+function persist() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(chats.filter((chat) => chat.messages.length > 0)));
+  const current = chats.find((chat) => chat.id === activeChatId);
+  if (current?.messages?.length) localStorage.setItem(ACTIVE_CHAT_KEY, current.id);
+  else localStorage.removeItem(ACTIVE_CHAT_KEY);
+}
 function activeChat() { return chats.find((chat) => chat.id === activeChatId) || activeDraft; }
 
 function isTableSeparator(line) { return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(line); }
@@ -77,7 +84,7 @@ function renderRecentChats() {
   for (const chat of [...chats].filter((chat) => chat.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)) {
     const row = document.createElement("div"); row.className = `recent-row ${chat.id === activeChatId ? "active" : ""}`;
     const button = document.createElement("button"); button.className = "recent-chat"; button.textContent = chat.title; button.title = chat.title;
-    button.onclick = () => { activeDraft = null; activeChatId = chat.id; renderRecentChats(); renderMessages(); input.focus(); };
+    button.onclick = () => { activeDraft = null; activeChatId = chat.id; localStorage.setItem(ACTIVE_CHAT_KEY, chat.id); renderRecentChats(); renderMessages(); input.focus(); };
     const del = document.createElement("button"); del.className = "delete-chat"; del.type = "button"; del.title = "Delete chat"; del.setAttribute("aria-label", `Delete ${chat.title}`); del.textContent = "×";
     del.onclick = (event) => { event.stopPropagation(); deleteChat(chat.id); };
     row.append(button, del); recentChats.appendChild(row);
@@ -86,7 +93,9 @@ function renderRecentChats() {
 
 function createNewChat() {
   activeDraft = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now() };
-  activeChatId = activeDraft.id; renderRecentChats(); renderMessages(); input.value = ""; input.focus();
+  activeChatId = activeDraft.id;
+  localStorage.removeItem(ACTIVE_CHAT_KEY);
+  renderRecentChats(); renderMessages(); input.value = ""; input.focus();
 }
 
 function deleteChat(chatId) {
@@ -98,7 +107,6 @@ function deleteChat(chatId) {
 async function initializeChats() {
   try { chats = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").filter((chat) => chat && Array.isArray(chat.messages) && chat.messages.length > 0); }
   catch { chats = []; }
-  persist();
   try {
     if (!chats.length) {
       const response = await fetch("/api/history", { cache: "no-store" }); const data = await response.json();
@@ -106,6 +114,14 @@ async function initializeChats() {
       if (old.length) { chats.push({ id: uid(), title: "Previous conversation", messages: old, createdAt: Date.now(), updatedAt: Date.now() }); persist(); }
     }
   } catch {}
+  const savedActiveChatId = localStorage.getItem(ACTIVE_CHAT_KEY);
+  const savedChat = savedActiveChatId ? chats.find((chat) => chat.id === savedActiveChatId && chat.messages.length > 0) : null;
+  if (savedChat) {
+    activeDraft = null;
+    activeChatId = savedChat.id;
+    renderRecentChats(); renderMessages(); input.value = ""; input.focus();
+    return;
+  }
   createNewChat();
 }
 
