@@ -1,35 +1,16 @@
 const form = document.getElementById("chatForm");
 const input = document.getElementById("message");
 const voiceStatus = document.getElementById("voiceStatus");
-const actions = document.querySelector(".composer-actions");
+const button = document.getElementById("attachButton");
+const fileInput = document.createElement("input");
+const chip = document.getElementById("attachmentChip");
+const name = document.getElementById("attachmentName");
+const remove = document.getElementById("attachmentRemove");
 
-if (form && input && actions) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "icon-button attach-button";
-  button.title = "Attach an image";
-  button.setAttribute("aria-label", "Attach an image");
-  button.textContent = "＋";
-
-  const fileInput = document.createElement("input");
+if (form && input && button && chip) {
   fileInput.type = "file";
   fileInput.accept = "image/png,image/jpeg,image/webp,image/gif";
   fileInput.hidden = true;
-
-  const chip = document.createElement("div");
-  chip.className = "attachment-chip";
-  chip.hidden = true;
-
-  const name = document.createElement("span");
-  const remove = document.createElement("button");
-  remove.type = "button";
-  remove.className = "attachment-remove";
-  remove.textContent = "×";
-  remove.title = "Remove attachment";
-  chip.append(name, remove);
-
-  actions.insertBefore(button, actions.firstChild);
-  form.parentElement.insertBefore(chip, form);
   document.body.appendChild(fileInput);
 
   let selectedFile = null;
@@ -43,7 +24,7 @@ if (form && input && actions) {
   }
 
   button.addEventListener("click", () => fileInput.click());
-  remove.addEventListener("click", clearAttachment);
+  remove?.addEventListener("click", clearAttachment);
 
   fileInput.addEventListener("change", () => {
     const file = fileInput.files?.[0];
@@ -67,7 +48,6 @@ if (form && input && actions) {
 
   form.addEventListener("submit", async (event) => {
     if (!selectedFile) return;
-
     event.preventDefault();
     event.stopImmediatePropagation();
 
@@ -113,12 +93,10 @@ if (form && input && actions) {
 
     const activeTitle = document.querySelector(".recent-row.active .recent-chat")?.textContent?.trim();
     let chat = activeTitle ? chats.find((item) => item.title === activeTitle) : null;
-
     if (!chat) {
       chat = { id: crypto.randomUUID(), title: prompt.slice(0, 48) || fileName, messages: [], createdAt: Date.now(), updatedAt: Date.now() };
       chats.unshift(chat);
     }
-
     chat.messages.push({ role: "user", content: `📎 ${fileName}\n${prompt}` });
     chat.messages.push({ role: "assistant", content: answer });
     chat.title = chat.title === "New chat" ? prompt.slice(0, 48) : chat.title;
