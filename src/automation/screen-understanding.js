@@ -11,15 +11,16 @@ export async function understandScreen({ prompt = "Describe the visible screen. 
   const captured = await captureScreen();
   try {
     const bytes = await getScreenFileBytes(captured.path);
+    const mimeType = captured.mimeType || "image/jpeg";
     const response = await client.chat.completions.create({
       model: "qwen/qwen3.8-27b",
       messages: [{ role: "user", content: [
         { type: "text", text: String(prompt).slice(0, 2000) },
-        { type: "image_url", image_url: { url: `data:image/png;base64,${bytes.toString("base64")}` } },
+        { type: "image_url", image_url: { url: `data:${mimeType};base64,${bytes.toString("base64")}` } },
       ] }],
     });
     const answer = response.choices?.[0]?.message?.content || "I couldn't understand the current screen.";
-    await audit("screen_understanding", { path: captured.path, promptLength: String(prompt).length });
+    await audit("screen_understanding", { path: captured.path, promptLength: String(prompt).length, mimeType });
     return { answer, screenshotPath: captured.path };
   } finally {
     await fs.unlink(captured.path).catch(() => {});
