@@ -15,12 +15,9 @@
         <span class="brand-orb"></span>
         <div><strong>FRIDAY</strong><span>PERSONAL AI</span></div>
       </div>
-
       <button id="newChat" class="new-chat"><span>＋</span> New chat</button>
-
       <div class="recent-heading"><span>RECENT</span></div>
       <div id="recentChats" class="recent-chats"></div>
-
       <div class="sidebar-footer">
         <div class="connection"><span class="status-dot"></span><div><strong>Online</strong><small>Local core connected</small></div></div>
       </div>
@@ -28,25 +25,27 @@
 
     <main class="main">
       <header class="topbar">
-        <div class="topbar-title">
-          <span class="eyebrow">FRIDAY CORE</span>
-          <h1>Personal AI assistant</h1>
-        </div>
+        <div class="topbar-title"><span class="eyebrow">FRIDAY CORE</span><h1>Personal AI assistant</h1></div>
         <button id="testVoice" class="voice-test" type="button"><span>◉</span> Test voice</button>
       </header>
 
       <section id="messages" class="messages" aria-live="polite"></section>
 
       <div class="composer-wrap">
+        <div id="attachmentChip" class="attachment-chip" hidden>
+          <span id="attachmentName"></span>
+          <button id="attachmentRemove" class="attachment-remove" type="button" title="Remove attachment" aria-label="Remove attachment">×</button>
+        </div>
         <div class="composer-hint"><span id="voiceStatus">Type a message or use your voice</span></div>
         <form id="chatForm" class="composer">
+          <button id="attachButton" class="icon-button attach-button" type="button" aria-label="Attach an image" title="Attach an image">＋</button>
           <textarea id="message" rows="1" autocomplete="off" placeholder="Message Friday…"></textarea>
           <div class="composer-actions">
             <button id="voice" class="icon-button voice-button" type="button" aria-label="Speak to Friday" title="Speak to Friday">🎙</button>
             <button id="send" class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button>
           </div>
         </form>
-        <div class="composer-note">Enter to send · Shift+Enter for a new line · Attach an image with ＋ · Voice replies use your custom Friday voice</div>
+        <div class="composer-note">Enter to send · Shift+Enter for a new line · ＋ attach an image · Voice replies use your custom Friday voice</div>
       </div>
     </main>
   </div>
