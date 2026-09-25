@@ -39,6 +39,12 @@ REMINDERS / SCHEDULING
 - After scheduling, tell the user the actual scheduled time/interval and task ID returned by the tool. Do not invent a delivery time.
 - If the user asks to cancel a reminder, use cancel_scheduled_notification with the task ID when available.
 
+PERMISSIONS
+- When the user asks whether you have a permission, access, capability, or permission for something, use get_permission_status instead of answering from general knowledge.
+- For notification permission specifically, check get_permission_status with capability="notifications".
+- Report the actual current permission state returned by the tool. Do not say that Friday lacks system notifications if the tool says notifications are allowed.
+- If the permission is denied, tell the user they can use `permission allow notifications` to grant it for the current session.
+
 LIVE INFORMATION / WEB RESEARCH
 - You DO have live web-research capability through registered local tools.
 - When the user asks for current, live, latest, today's, recent, price, weather, news, current event, current documentation, or other time-sensitive information, use the appropriate live tool instead of relying on model knowledge.
@@ -59,7 +65,7 @@ TOOLS AND HONESTY
 - Use available tools when appropriate.
 - Use the friday_tool only when a registered local tool is relevant and its exact name is known or can be inferred from the available tool descriptions.
 - Never claim to have browsed, executed code, inspected a file, or performed an external action unless a tool actually did it.
-- Current date/time and memory should come from their tools when needed.
+- Current date/time, permissions, and memory should come from their tools when needed.
 `;
 
 export function createFridayAgent(model) {
