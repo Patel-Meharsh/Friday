@@ -1,5 +1,6 @@
 import { registerTool } from "./tool-registry.js";
 import { getMemoryContext, saveMemory } from "../memory/memory-store.js";
+import { liveWebLookup, liveNewsLookup, liveWeatherLookup } from "./web-research.js";
 
 let initialized = false;
 
@@ -41,6 +42,30 @@ export function registerDefaultLocalTools() {
     capability: "memory",
     input: { query: "string" },
     execute: async ({ query = "" }) => getMemoryContext(query),
+  });
+
+  registerTool({
+    name: "web_lookup",
+    description: "Perform a live web lookup for current facts, documentation, prices, events, or other information. Returns fetched results and timestamp.",
+    capability: "webResearch",
+    input: { query: "string" },
+    execute: async ({ query }) => JSON.stringify(await liveWebLookup(query), null, 2),
+  });
+
+  registerTool({
+    name: "news_lookup",
+    description: "Fetch current news results for a topic from Google News RSS.",
+    capability: "webResearch",
+    input: { query: "string" },
+    execute: async ({ query }) => JSON.stringify(await liveNewsLookup(query), null, 2),
+  });
+
+  registerTool({
+    name: "weather_lookup",
+    description: "Fetch current weather for a named city or location using live Open-Meteo data.",
+    capability: "webResearch",
+    input: { location: "string" },
+    execute: async ({ location }) => JSON.stringify(await liveWeatherLookup(location), null, 2),
   });
 
   initialized = true;
