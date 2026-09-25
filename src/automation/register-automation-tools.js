@@ -3,11 +3,27 @@ import { notify } from "./notifications.js";
 import { scheduleNotification, scheduleRecurringNotification, cancelScheduledNotification, listNotificationSchedules } from "./scheduler.js";
 import { understandScreen } from "./screen-understanding.js";
 import { moveMouse, clickMouse, typeText, pressKey } from "./windows-automation.js";
+import { getPermissions, isKnownCapability } from "../security/permission-manager.js";
 
 let registered = false;
 
 export function registerAutomationTools() {
   if (registered) return;
+
+  registerTool({
+    name: "get_permission_status",
+    description: "Return the current session permission state for all known Friday capabilities, or one requested capability.",
+    capability: "generalAI",
+    input: { capability: "string|null" },
+    execute: ({ capability = null } = {}) => {
+      const permissions = getPermissions();
+      if (capability) {
+        if (!isKnownCapability(capability)) throw new Error(`Unknown capability: ${capability}`);
+        return { capability, allowed: Boolean(permissions[capability]) };
+      }
+      return permissions;
+    },
+  });
 
   registerTool({
     name: "notify",
