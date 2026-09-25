@@ -18,13 +18,18 @@ function assertWindows() {
   if (process.platform !== "win32") throw new Error("Windows desktop automation is only available on Windows.");
 }
 
-async function powershell(script, args = []) {
+async function powershell(script, args = [], extraEnv = {}) {
   assertWindows();
-  const { stdout, stderr } = await execFileAsync(POWERSHELL, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script, ...args], {
-    windowsHide: true,
-    timeout: 15_000,
-    maxBuffer: 2 * 1024 * 1024,
-  });
+  const { stdout, stderr } = await execFileAsync(
+    POWERSHELL,
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script, ...args],
+    {
+      windowsHide: true,
+      timeout: 15_000,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { ...process.env, ...extraEnv },
+    },
+  );
   if (stderr?.trim()) throw new Error(stderr.trim().slice(0, 500));
   return stdout.trim();
 }
@@ -33,11 +38,35 @@ export async function captureScreen({ filePath = null } = {}) {
   await assertPermission("screenUnderstanding", { reason: "User requested a screen snapshot" });
   assertWindows();
 
-  const destination = path.resolve(filePath || path.join(os.tmpdir(), `friday-screen-${Date.now()}.png`));
-  const script = `Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $bounds=[System.Windows.Forms.SystemInformation]::VirtualScreen; $bmp=New-Object System.Drawing.Bitmap $bounds.Width,$bounds.Height; $g=[System.Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($bounds.Left,$bounds.Top,0,0,$bmp.Size); $bmp.Save([System.IO.Path]::GetFullPath($args[0]),[System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.Dispose(); Write-Output ([System.IO.Path]::GetFullPath($args[0]))`;
-  const output = await powershell(script, [destination]);
-  await audit("screen_capture", { path: output, width: "virtual-screen", sensitive: true });
-  return { path: output };
+  const destination = path.resolve(filePath || path.join(os.tmpdir(), `friday-screen-${Date.now()}.jpg`));
+  const script = `
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+$destination = $env:FRIDAY_SCREEN_PATH
+if ([string]::IsNullOrWhiteSpace($destination)) { throw "Screen capture destination was not provided." }
+$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+if ($bounds.Width -le 0 -or $bounds.Height -le 0) { throw "Unable to determine the Windows virtual screen bounds." }
+$bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height, ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+try {
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  try {
+    $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bmp.Size, [System.Drawing.CopyPixelOperation]::SourceCopy)
+  } finally { $g.Dispose() }
+  $jpegCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+  if ($null -eq $jpegCodec) { throw "JPEG encoder is unavailable." }
+  $quality = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [long]85)
+  $params = New-Object System.Drawing.Imaging.EncoderParameters(1)
+  $params.Param[0] = $quality
+  $bmp.Save($destination, $jpegCodec, $params)
+  $params.Dispose()
+  $quality.Dispose()
+} finally { $bmp.Dispose() }
+if (-not (Test-Path -LiteralPath $destination)) { throw "Screen capture file was not created." }
+Write-Output $destination
+`;
+  const output = await powershell(script, [], { FRIDAY_SCREEN_PATH: destination });
+  await audit("screen_capture", { path: output, width: "virtual-screen", format: "jpeg", sensitive: true });
+  return { path: output, mimeType: "image/jpeg" };
 }
 
 export async function moveMouse({ x, y }) {
