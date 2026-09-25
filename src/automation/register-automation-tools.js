@@ -1,6 +1,6 @@
 import { registerTool } from "../tools/tool-registry.js";
 import { notify } from "./notifications.js";
-import { scheduleNotification, cancelScheduledNotification, listNotificationSchedules } from "./scheduler.js";
+import { scheduleNotification, scheduleRecurringNotification, cancelScheduledNotification, listNotificationSchedules } from "./scheduler.js";
 import { understandScreen } from "./screen-understanding.js";
 import { moveMouse, clickMouse, typeText, pressKey } from "./windows-automation.js";
 
@@ -19,10 +19,18 @@ export function registerAutomationTools() {
 
   registerTool({
     name: "schedule_notification",
-    description: "Schedule a local desktop notification in the current Friday session.",
+    description: "Schedule one local desktop notification. Supports an exact IST clock time such as 1:02 PM, 13:04, or 20:30 through atTime, or use delayMs for a relative delay.",
     capability: "notifications",
-    input: { title: "string", message: "string", delayMs: "number", intervalMs: "number|null", once: "boolean", silent: "boolean" },
+    input: { title: "string", message: "string", delayMs: "number", intervalMs: "number|null", once: "boolean", silent: "boolean", atTime: "string|null" },
     execute: scheduleNotification,
+  });
+
+  registerTool({
+    name: "schedule_recurring_notification",
+    description: "Schedule a repeating local desktop notification. Use every + unit (seconds, minutes, hours, days, weeks), or add atTime such as 9:00 AM for the first occurrence. Example: every=2, unit=hours.",
+    capability: "notifications",
+    input: { title: "string", message: "string", every: "number", unit: "string", atTime: "string|null", silent: "boolean" },
+    execute: scheduleRecurringNotification,
   });
 
   registerTool({
