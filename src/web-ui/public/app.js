@@ -122,8 +122,6 @@ async function speakNaturally(text) {
   const run = speechRun;
   voiceStatus.textContent = 'Friday is preparing a natural voice response…';
 
-  // Keep short replies as one generation so normal conversation and the voice test
-  // use the same voice/model/settings without artificial chunk-to-chunk changes.
   let nextBlobPromise;
   const makeRequest = (index) => fetchSpeechChunk(
     chunks[index],
@@ -212,15 +210,23 @@ async function sendMessage(rawMessage, { fromVoice = false } = {}) {
     if (!response.ok) throw new Error(data.error || 'Request failed');
     const answer = data.answer || 'I did not receive an answer.';
     addMessage('friday', answer);
-    try {
-      await speakNaturally(answer);
-    } catch (voiceError) {
-      voiceStatus.textContent = `Natural voice unavailable: ${voiceError.message}`;
+    // Text messages are text-only. This prevents accidental ElevenLabs credit usage.
+    // Speech is generated only when the user initiated this turn with the microphone.
+    if (fromVoice) {
+      try {
+        await speakNaturally(answer);
+      } catch (voiceError) {
+        voiceStatus.textContent = `Natural voice unavailable: ${voiceError.message}`;
+      }
+    } else {
+      voiceStatus.textContent = 'Text response ready — use the microphone for a spoken reply.';
     }
   } catch (error) {
     const errorMessage = `I couldn't complete that request: ${error.message}`;
     addMessage('friday', errorMessage);
-    try { await speakNaturally(errorMessage); } catch {}
+    if (fromVoice) {
+      try { await speakNaturally(errorMessage); } catch {}
+    }
   } finally {
     send.disabled = false;
     if (!fromVoice) input.focus();
