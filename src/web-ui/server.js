@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeSpeech, ttsStatus } from "./tts-v2.js";
+import { analyzeImageData } from "./image-understanding.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -22,6 +23,12 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         await saveChatMessage("user", message);
         const answer = await askFriday(message, Boolean(body.forceTools));
         await saveChatMessage("assistant", answer);
+        return json(res, { answer });
+      }
+
+      if (req.url === "/api/image" && req.method === "POST") {
+        const body = await readJson(req, 12_000_000);
+        const answer = await analyzeImageData({ dataUrl: body.dataUrl, prompt: body.prompt });
         return json(res, { answer });
       }
 
@@ -71,14 +78,21 @@ function sendAudio(res, audio) {
   return res.end(audio);
 }
 
-function readJson(req) {
+function readJson(req, maxBytes = 1_000_000) {
   return new Promise((resolve, reject) => {
     let raw = "";
+    let rejected = false;
     req.on("data", (chunk) => {
+      if (rejected) return;
       raw += chunk;
-      if (raw.length > 1_000_000) reject(new Error("Request is too large."));
+      if (raw.length > maxBytes) {
+        rejected = true;
+        reject(new Error("Request is too large."));
+        req.destroy();
+      }
     });
     req.on("end", () => {
+      if (rejected) return;
       try { resolve(raw ? JSON.parse(raw) : {}); } catch { reject(new Error("Invalid JSON request.")); }
     });
     req.on("error", reject);
