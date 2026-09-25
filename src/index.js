@@ -15,7 +15,7 @@ import { startWebUI } from "./web-ui/server.js";
 import { initializeSecurity, shutdownSecurity } from "./security/runtime-security.js";
 import { getPermissions, assertPermission, grantSessionPermission, revokeSessionPermission } from "./security/permission-manager.js";
 import { startBackgroundRuntime, stopBackgroundRuntime, getBackgroundRuntimeStatus } from "./runtime/background-runtime.js";
-import { getMemoryContext, memoryStatus, saveMemory, getChatHistory } from "./memory/memory-store.js";
+import { getMemoryContext, memoryStatus, saveMemory, saveChatMessage, getChatHistory } from "./memory/memory-store.js";
 
 if (!process.env.GROQ_API_KEY) {
   console.error("Missing GROQ_API_KEY. Add it to a local .env file.");
@@ -120,13 +120,11 @@ function parseClock(value) {
   if (minute > 59) return null;
 
   if (meridiem) {
-    // Normal 12-hour input: 1 PM -> 13:00, 12 AM -> 00:00.
     if (hour >= 1 && hour <= 12) {
       if (meridiem === "AM") hour = hour === 12 ? 0 : hour;
       if (meridiem === "PM") hour = hour === 12 ? 12 : hour + 12;
     } else if (hour >= 13 && hour <= 23) {
-      // Be forgiving with inputs such as "13:04 P.M.".
-      // The 24-hour clock already contains the AM/PM information.
+      // Forgive inputs such as "13:04 P.M."; 24-hour input already defines the time.
     } else {
       return null;
     }
@@ -158,14 +156,11 @@ function delayUntilClock({ hour, minute }, extraDays = 0) {
   const targetMinutes = hour * 60 + minute;
   const nowMinutes = now.hour * 60 + now.minute;
   let days = extraDays;
-
   if (days === 0 && targetMinutes <= nowMinutes) days = 1;
 
   const target = new Date(Date.UTC(now.year, now.month - 1, now.day + days, hour, minute, 0));
   const nowUtcAsIST = Date.UTC(now.year, now.month - 1, now.day, now.hour, now.minute, now.second);
-  const delayMs = target.getTime() - nowUtcAsIST;
-
-  return { delayMs: Math.max(1_000, delayMs), intervalMs: null };
+  return { delayMs: Math.max(1_000, target.getTime() - nowUtcAsIST), intervalMs: null };
 }
 
 function formatIST(hour, minute) {
@@ -188,9 +183,7 @@ async function handleReminderRequest(message) {
     silent: false,
   }, { reason: "Natural-language reminder request" });
 
-  const when = reminder.displayTime
-    ? reminder.displayTime
-    : `in ${Math.max(1, Math.round(reminder.delayMs / 1000))} seconds`;
+  const when = reminder.displayTime ? reminder.displayTime : `in ${Math.max(1, Math.round(reminder.delayMs / 1000))} seconds`;
   return `Scheduled. I’ll notify you ${when}. Task ID: ${task.id}`;
 }
 
@@ -245,35 +238,20 @@ function getStatus() {
     permissions: getPermissions(),
     backgroundRuntime: getBackgroundRuntimeStatus(),
     capabilities: {
-      generalAI: true,
-      webResearch: true,
-      codeExecution: true,
-      memory: true,
-      imageUnderstanding: true,
-      deviceAgent: true,
-      filesystemRead: true,
-      filesystemWrite: false,
-      terminal: false,
-      applications: false,
-      notifications: getPermissions().notifications,
-      screenUnderstanding: getPermissions().screenUnderstanding,
-      keyboard: getPermissions().keyboard,
-      mouse: getPermissions().mouse,
-      remoteControl: false,
-      admin: false,
+      generalAI: true, webResearch: true, codeExecution: true, memory: true, imageUnderstanding: true, deviceAgent: true,
+      filesystemRead: true, filesystemWrite: false, terminal: false, applications: false,
+      notifications: getPermissions().notifications, screenUnderstanding: getPermissions().screenUnderstanding,
+      keyboard: getPermissions().keyboard, mouse: getPermissions().mouse, remoteControl: false, admin: false,
     },
   };
 }
 
-startWebUI({ askFriday, getStatus, getChatHistory });
+startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessage });
 await startBackgroundRuntime();
 
 function readMultilinePrompt() {
   return new Promise((resolve, reject) => {
-    multilineMode = true;
-    multilineLines = [];
-    multilineResolve = resolve;
-    multilineReject = reject;
+    multilineMode = true; multilineLines = []; multilineResolve = resolve; multilineReject = reject;
     console.log("Friday: Paste the complete content now.");
     console.log("Friday: Type END on a new line when finished.\n");
   });
@@ -293,13 +271,10 @@ async function analyzeImage(filePath, prompt = "Analyze this image carefully. De
   await assertPermission("imageUnderstanding", { reason: "User requested image analysis" });
   const response = await visionClient.chat.completions.create({
     model: "qwen/qwen3.8-27b",
-    messages: [{
-      role: "user",
-      content: [
-        { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
-        { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } },
-      ],
-    }],
+    messages: [{ role: "user", content: [
+      { type: "text", text: `${prompt}${defaultLanguage ? `\nIf code is present and the language is not explicit, prefer ${defaultLanguage}.` : ""}` },
+      { type: "image_url", image_url: { url: `data:${mimeType};base64,${image.toString("base64")}` } },
+    ] }],
   });
   return response.choices?.[0]?.message?.content || "I couldn't extract a useful answer from that image.";
 }
@@ -353,93 +328,58 @@ async function processMultiline(body, explicitMode = null) {
 rl.on("line", async (line) => {
   if (multilineMode) {
     if (line.trim() === "END") {
-      const body = multilineLines.join("\n").trim();
-      const resolve = multilineResolve;
-      multilineMode = false;
-      multilineLines = [];
-      multilineResolve = undefined;
-      multilineReject = undefined;
-      resolve(body);
-    } else {
-      multilineLines.push(line);
-    }
+      const body = multilineLines.join("\n").trim(); const resolve = multilineResolve;
+      multilineMode = false; multilineLines = []; multilineResolve = undefined; multilineReject = undefined; resolve(body);
+    } else multilineLines.push(line);
     return;
   }
 
-  const trimmed = line.trim();
-  const lower = trimmed.toLowerCase();
+  const trimmed = line.trim(); const lower = trimmed.toLowerCase();
   if (!trimmed) { output.write("You: "); return; }
-  if (lower === "exit") {
-    console.log("Friday: Shutting down. Goodbye.");
-    await stopBackgroundRuntime("user_exit");
-    await shutdownSecurity("user_exit");
-    rl.close();
-    return;
-  }
+  if (lower === "exit") { console.log("Friday: Shutting down. Goodbye."); await stopBackgroundRuntime("user_exit"); await shutdownSecurity("user_exit"); rl.close(); return; }
   if (lower === "permissions" || lower === "permission status") {
     console.log("\nFriday permission status:");
     for (const [name, allowed] of Object.entries(getPermissions())) console.log(`${allowed ? "ALLOW" : "DENY "}  ${name}`);
-    console.log("");
-    output.write("You: ");
-    return;
+    console.log(""); output.write("You: "); return;
   }
   if (await handlePermissionCommand(trimmed)) { output.write("You: "); return; }
   if (lower.startsWith("language ")) {
     defaultLanguage = trimmed.slice("language ".length).trim() || null;
     console.log(defaultLanguage ? `Friday: Got it. I'll use ${defaultLanguage} as your default coding language for this session.\n` : "Friday: No default coding language is set.\n");
-    output.write("You: ");
-    return;
+    output.write("You: "); return;
   }
   if (lower === "web:" || lower === "run:") {
     try {
       const body = await readMultilinePrompt();
       if (body) {
-        const instruction = lower === "web:"
-          ? `Research this request using current web information and cite useful sources.\n\n${body}`
-          : `Use secure Python execution to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
-        const answer = await askFriday(instruction, true);
-        console.log(`\nFriday: ${answer}\n`);
+        const instruction = lower === "web:" ? `Research this request using current web information and cite useful sources.\n\n${body}` : `Use secure Python execution to verify or execute the following when appropriate. Show the relevant result and explain it.\n\n${body}`;
+        const answer = await askFriday(instruction, true); console.log(`\nFriday: ${answer}\n`);
       }
-    } catch (error) {
-      console.error(`Friday: ${error.message || "The request failed."}`);
-    }
-    output.write("You: ");
-    return;
+    } catch (error) { console.error(`Friday: ${error.message || "The request failed."}`); }
+    output.write("You: "); return;
   }
   if (lower === "paste" || lower === "solve:" || lower === "explain:" || lower === "debug:" || lower === "teach:") {
     const mode = lower === "paste" ? "Inspect and help with this" : trimmed.slice(0, -1);
     try {
       const body = await readMultilinePrompt();
-      if (body) {
-        const answer = await processMultiline(body, mode);
-        console.log(`\nFriday: ${answer}\n`);
-      }
-    } catch (error) {
-      console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
-    }
-    output.write("You: ");
-    return;
+      if (body) { const answer = await processMultiline(body, mode); console.log(`\nFriday: ${answer}\n`); }
+    } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
+    output.write("You: "); return;
   }
   if (lower.startsWith("image ")) {
     try {
       console.log("Friday: Analyzing image...\n");
       const answer = await analyzeImage(trimmed.slice(6));
-      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`);
-      rememberConversation("assistant", answer);
+      rememberConversation("user", `[Image provided: ${trimmed.slice(6)}]`); rememberConversation("assistant", answer);
       console.log(`Friday: ${answer}\n`);
-    } catch (error) {
-      console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`);
-    }
-    output.write("You: ");
-    return;
+    } catch (error) { console.error(`Friday: ${error.message || "I couldn't analyze that image."}\n`); }
+    output.write("You: "); return;
   }
   try {
     const reminderAnswer = await handleReminderRequest(trimmed);
     const answer = reminderAnswer || await askFriday(trimmed);
     console.log(`Friday: ${answer}\n`);
-  } catch (error) {
-    console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`);
-  }
+  } catch (error) { console.error(`Friday: ${error.message || "I encountered an error while processing that request."}`); }
   output.write("You: ");
 });
 
