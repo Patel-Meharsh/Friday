@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { synthesizeSpeech, ttsStatus } from "./tts-v2.js";
 import { analyzeImageData } from "./image-understanding.js";
+import { getPermissions, grantSessionPermission, revokeSessionPermission, isKnownCapability } from "../security/permission-manager.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, "public");
@@ -21,7 +22,8 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
         const message = String(body.message || "").trim();
         if (!message) return json(res, { error: "Message is required." }, 400);
         await saveChatMessage("user", message);
-        const answer = await askFriday(message, Boolean(body.forceTools));
+        const directAnswer = await handleWebPermissionCommand(message);
+        const answer = directAnswer ?? await askFriday(message, Boolean(body.forceTools));
         await saveChatMessage("assistant", answer);
         return json(res, { answer });
       }
@@ -66,6 +68,50 @@ export function startWebUI({ askFriday, getStatus, getChatHistory, saveChatMessa
 
   server.listen(port, "127.0.0.1", () => console.log(`FRIDAY WEB UI: http://localhost:${port}`));
   return server;
+}
+
+async function handleWebPermissionCommand(message) {
+  const trimmed = String(message || "").trim();
+  const command = trimmed.match(/^(?:permissions?|permission)\s+(grant|allow|revoke|deny)\s+([a-zA-Z]+)$/i);
+  if (command) {
+    const action = command[1].toLowerCase();
+    const capability = command[2];
+    if (!isKnownCapability(capability)) return `Unknown permission capability: ${capability}`;
+    if (action === "grant" || action === "allow") {
+      await grantSessionPermission(capability);
+      return `Allowed ${capability} for this session only.`;
+    }
+    await revokeSessionPermission(capability);
+    return `Denied ${capability} for this session only.`;
+  }
+
+  if (/^(?:permissions?|permission status)$/i.test(trimmed)) {
+    const permissions = getPermissions();
+    return Object.entries(permissions).map(([name, allowed]) => `${allowed ? "ALLOW" : "DENY "}  ${name}`).join("\n");
+  }
+
+  const question = trimmed.match(/\b(?:do you have|is|are)\s+(?:the\s+)?([a-zA-Z]+)\s+permissions?\b/i);
+  if (question) {
+    const aliases = {
+      notification: "notifications",
+      notifications: "notifications",
+      screen: "screenUnderstanding",
+      screenunderstanding: "screenUnderstanding",
+      keyboard: "keyboard",
+      mouse: "mouse",
+      terminal: "terminal",
+      applications: "applications",
+    };
+    const capability = aliases[question[1].toLowerCase()];
+    if (capability && isKnownCapability(capability)) {
+      const allowed = Boolean(getPermissions()[capability]);
+      return allowed
+        ? `Yes. ${capability} permission is currently allowed for this session.`
+        : `No. ${capability} permission is currently denied. You can enable it with: permission allow ${capability}`;
+    }
+  }
+
+  return null;
 }
 
 function sendAudio(res, audio) {
