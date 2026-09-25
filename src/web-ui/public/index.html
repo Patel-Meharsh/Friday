@@ -3,28 +3,49 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>FRIDAY</title>
+  <meta name="theme-color" content="#080b12" />
+  <title>FRIDAY — Personal AI</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div class="shell">
+  <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><span class="orb"></span><div><strong>FRIDAY</strong><small>PERSONAL AI</small></div></div>
-      <button id="newChat" class="new-chat">＋ New chat</button>
-      <div class="recent-heading">RECENT CHATS</div>
+      <div class="brand">
+        <span class="brand-orb"></span>
+        <div><strong>FRIDAY</strong><span>PERSONAL AI</span></div>
+      </div>
+
+      <button id="newChat" class="new-chat"><span>＋</span> New chat</button>
+
+      <div class="recent-heading"><span>RECENT</span></div>
       <div id="recentChats" class="recent-chats"></div>
-      <div class="side-nav"><button class="nav active">◉ Chat</button><button class="nav">◌ Memory</button><button class="nav">⌁ Projects</button><button class="nav">▣ Devices</button><button class="nav">⚙ Settings</button></div>
-      <div class="side-status"><span class="dot"></span> Online<br><small>Local core connected</small></div>
+
+      <div class="sidebar-footer">
+        <div class="connection"><span class="status-dot"></span><div><strong>Online</strong><small>Local core connected</small></div></div>
+      </div>
     </aside>
+
     <main class="main">
-      <header><div><span class="eyebrow">PERSONAL AI SYSTEM</span><h1>What can I help you with?</h1></div><div class="device"><span class="dot"></span><span id="deviceName">FRIDAY CORE</span></div></header>
-      <section id="messages" class="messages"></section>
+      <header class="topbar">
+        <div class="topbar-title">
+          <span class="eyebrow">FRIDAY CORE</span>
+          <h1>Personal AI assistant</h1>
+        </div>
+        <button id="testVoice" class="voice-test" type="button"><span>◉</span> Test voice</button>
+      </header>
+
+      <section id="messages" class="messages" aria-live="polite"></section>
+
       <div class="composer-wrap">
-        <div class="voice-test-row"><button id="testVoice" class="test-voice" type="button">🔊 Test Friday's voice</button></div>
+        <div class="composer-hint"><span id="voiceStatus">Type a message or use your voice</span></div>
         <form id="chatForm" class="composer">
-          <textarea id="message" rows="1" placeholder="Ask Friday anything..."></textarea>
-          <div class="composer-bottom"><span id="voiceStatus">Enter to send · Shift+Enter for a new line</span><div class="composer-actions"><button id="voice" class="voice-button" type="button" aria-label="Voice input">🎙</button><button id="send" type="submit" aria-label="Send">➤</button></div></div>
+          <textarea id="message" rows="1" autocomplete="off" placeholder="Message Friday…"></textarea>
+          <div class="composer-actions">
+            <button id="voice" class="icon-button voice-button" type="button" aria-label="Speak to Friday" title="Speak to Friday">🎙</button>
+            <button id="send" class="send-button" type="submit" aria-label="Send message" title="Send message">↑</button>
+          </div>
         </form>
+        <div class="composer-note">Enter to send · Shift+Enter for a new line · Voice replies use your custom Friday voice</div>
       </div>
     </main>
   </div>
